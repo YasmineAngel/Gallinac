@@ -21,8 +21,8 @@ Module List.
       );;
     read_var count.
 
-  Definition is_empty (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) bool.
-  Admitted.
+  Definition is_empty (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) bool :=
+    eq_ptr ptr Pointer.NULL.
 
   Definition cons [MS: MemStorable] (ptr: Pointer.t) (n_ofst: N.t) (d_ofst: N.t) (v: MS): program (State ListStore list_heap_carrier) Pointer.t.
   Admitted.
