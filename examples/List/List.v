@@ -24,8 +24,13 @@ Module List.
   Definition is_empty (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) bool :=
     eq_ptr ptr Pointer.NULL.
 
-  Definition cons [MS: MemStorable] (ptr: Pointer.t) (n_ofst: N.t) (d_ofst: N.t) (v: MS): program (State ListStore list_heap_carrier) Pointer.t.
-  Admitted.
+  Definition cons [MS: MemStorable] (ptr: Pointer.t) (n_ofst: N.t) (d_ofst: N.t) (v: MS): program (State ListStore list_heap_carrier) Pointer.t :=
+    do new_node <- alloc_ptr 2 Pointer.NULL;
+    do data_ptr <- new_node ~+> d_ofst;
+    write_ptr data_ptr v ;;
+    do next_ptr <- new_node ~+> n_ofst;
+    write_ptr next_ptr ptr ;;
+    ret new_node.
 
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t.
   Admitted.
