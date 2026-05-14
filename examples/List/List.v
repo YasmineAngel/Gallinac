@@ -32,8 +32,9 @@ Module List.
     write_ptr next_ptr ptr ;;
     ret new_node.
 
-  Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t.
-  Admitted.
+  Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
+      do next_ptr <- ptr ~+> n_ofst;
+      read_ptr next_ptr.
 
   Definition nth (ptr: Pointer.t) (n_ofst: N.t) (nth: nat): program (State ListStore list_heap_carrier) Pointer.t :=
       do var (node: Pointer.t) <- ptr;
