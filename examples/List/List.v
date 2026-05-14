@@ -67,6 +67,25 @@ Module List.
     read_var new_next.
 
   Definition append (l0 l1: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
+    do is_null <- eq_ptr l0 Pointer.NULL;
+    if is_null then ret l1
+    else
+      do var (node: Pointer.t) <- l0;
+      while
+        (do (nd: Pointer.t) <- read_var node ;
+         do next_ptr <- nd ~+> n_ofst ;
+         do (nxt: Pointer.t) <- read_ptr next_ptr ;
+         do c <- eq_ptr nxt Pointer.NULL ;
+         ret (negb c))
+        (do (nd: Pointer.t) <- read_var node ;
+        do next_ptr <- nd ~+> n_ofst ;
+        do (nxt: Pointer.t) <- read_ptr next_ptr ;
+        write_var node nxt
+        );;
+      do last <- read_var node ;
+      do last_next <- last ~+> n_ofst ;
+      write_ptr last_next l1 ;;
+      ret l0.
 
 
 End List.
