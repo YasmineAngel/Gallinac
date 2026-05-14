@@ -7,8 +7,19 @@ Definition print_ll (ptr : Pointer.t) : program (State ListStore list_heap_carri
 
 Module List.
 
-  Definition length (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) N.t.
-  Admitted.
+  Definition length (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) N.t :=
+    do var (node: Pointer.t) <- ptr;
+    do var (count: N.t) <- (0%N : N.t); 
+    while (do curr <- read_var node; do c <- eq_ptr curr Pointer.NULL; ret (negb c))
+      (
+        do (nd: Pointer.t) <- read_var node;
+        do next_ptr <- nd ~+> n_ofst;
+        do (next: Pointer.t) <- read_ptr next_ptr;
+        write_var node next;; 
+        do (c: N.t) <- read_var count;
+        write_var count ((c + 1)%N : N.t)
+      );;
+    read_var count.
 
   Definition is_empty (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) bool.
   Admitted.
