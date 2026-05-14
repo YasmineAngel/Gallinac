@@ -30,8 +30,19 @@ Module List.
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t.
   Admitted.
 
-  Definition nth (ptr: Pointer.t) (n_ofst: N.t) (nth: nat): program (State ListStore list_heap_carrier) Pointer.t.
-  Admitted.
+  Definition nth (ptr: Pointer.t) (n_ofst: N.t) (nth: nat): program (State ListStore list_heap_carrier) Pointer.t :=
+      do var (node: Pointer.t) <- ptr;
+      do var (idx: nat) <- nth;
+      while (do curr <- read_var node ; do c <- eq_ptr curr Pointer.NULL ; do i <- read_var idx ; ret ( andb (negb c) (Nat.ltb 0 i)))
+        (
+          do (nd: Pointer.t) <- read_var node ;
+          do node_next_ptr <- nd ~+> n_ofst ;
+          do (old_next: Pointer.t) <- read_ptr node_next_ptr ;
+          write_var node old_next ;;
+          do i <- read_var idx ;
+          write_var idx (i - 1)
+        );;
+      read_var node.
 
   Definition reverse (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
     do var (node: Pointer.t) <- ptr;
@@ -49,8 +60,8 @@ Module List.
       );;
     read_var new_next.
 
-  Definition append (l0 l1: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t.
-  Admitted.
+  Definition append (l0 l1: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
+
 
 End List.
 
