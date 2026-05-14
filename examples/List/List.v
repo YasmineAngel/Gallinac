@@ -110,8 +110,19 @@ Module ListExample.
   Definition main: program _ nat :=
     do ptr <- allocate;
     print_ll ptr;;
-    do ptr <- List.reverse ptr 1%N;
-    print_ll ptr;;
+    do len <- List.length ptr 1%N;
+    do empty <- List.is_empty ptr 1%N;
+    do ptr_cons <- List.cons ptr 1%N 0%N 0;
+    print_ll ptr_cons;;
+    do ptr_tl <- List.tl ptr_cons 1%N;
+    print_ll ptr_tl;;
+    do ptr_nth <- List.nth ptr_cons 1%N 2;
+    print_ll ptr_nth;;
+    do ptr_rev <- List.reverse ptr_cons 1%N;
+    print_ll ptr_rev;;
+    do ptr_new <- allocate;
+    do ptr_appended <- List.append ptr_rev ptr_new 1%N;
+    print_ll ptr_appended;;
     ret 0.
 
 End ListExample.
