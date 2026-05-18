@@ -1,4 +1,5 @@
 From GallinaC Require Import Programming.
+From GallinaC Require Import Frame GenAssertion Hoare InternalTriples ListAssertion Pred PrimitivesTriples SepTriples StateAssertion.
 
 (* print_ll ist not implemented as it performs only I/O *)
 (* Instead, it is stubbed and will be excluded from extraction *)
@@ -21,8 +22,34 @@ Module List.
       );;
     read_var count.
 
-  Definition is_empty (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) bool :=
+  Definition is_empty (ptr: Pointer.t): program (State ListStore list_heap_carrier) bool :=
     eq_ptr ptr Pointer.NULL.
+
+  Lemma is_empty_spec (ptr: Pointer.t) (s0 : State ListStore list_heap_carrier):
+    {{ fun s => s = s0 /\ Facts.WValid (heap s) ptr /\ Pointer.Allows ptr Operation.Cmp}}
+      is_empty ptr
+    {{ fun res s' => Pointer.cmp ptr Pointer.NULL = Some res /\ s' = s0 }}.
+
+  Proof.
+  intros s [-> [HWValid HAllows]].
+  unfold is_empty, eq_ptr, partial_exception_hoare.
+  cbn.
+  destruct (Facts.weakly_valid (Primitives.heap s0) ptr) eqn:Evalid.
+  2: { 
+    destruct (Facts.weakly_valid_spec (Primitives.heap s0) ptr); [ discriminate | contradiction ]. 
+  }
+  destruct (Pointer.allows ptr Operation.Cmp) eqn:Eallows.
+  2: { 
+    destruct (Pointer.allows_spec ptr Operation.Cmp); [ discriminate | contradiction ]. 
+  }
+  cbn.
+  unfold Pointer.cmp.
+  rewrite Eallows. 
+  cbn.
+  split.
+  -reflexivity.
+  -reflexivity.
+  Qed.
 
   Definition cons [MS: MemStorable] (ptr: Pointer.t) (n_ofst: N.t) (d_ofst: N.t) (v: MS): program (State ListStore list_heap_carrier) Pointer.t :=
     do new_node <- alloc_ptr 2 Pointer.NULL;
@@ -111,7 +138,7 @@ Module ListExample.
     do ptr <- allocate;
     print_ll ptr;;
     do len <- List.length ptr 1%N;
-    do empty <- List.is_empty ptr 1%N;
+    do empty <- List.is_empty ptr ;
     do ptr_cons <- List.cons ptr 1%N 0%N 0;
     print_ll ptr_cons;;
     do ptr_tl <- List.tl ptr_cons 1%N;
