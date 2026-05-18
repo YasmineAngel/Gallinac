@@ -9,8 +9,8 @@ From GallinaC.Compiler.Deep Require Import Cmd Prog Typing.
 
 Section State.
 
-  Context [St: Store].
-  Context [Hp: Heap].
+  Context {St: Store}.
+  Context {Hp: Heap}.
 
   (* C evaluation under the CompCert model is CPS *)
   (* Hence, at any point in time, only one command (statement) is under consideration at a time *)
@@ -374,6 +374,190 @@ Section State.
   Definition step_star := Smallstep.star step.
 
 End State.
+
+Module Typing.
+
+  Record wt_env (f: function) (ty_env: map_ctxt (type * bool)) (val_env: map_ctxt value): Type :=
+    {
+      wt_val_env: forall var_id t,
+        List.In (var_id, t) (f.(fn_params) ++ f.(fn_temps)) ->
+        { t &
+          match Maps.PTree.get var_id val_env with
+          | Some v => wt_value v t + (Maps.PTree.get var_id ty_env = Some (t, true))
+          | None => Maps.PTree.get var_id ty_env = Some (t, false)
+          end };
+      wv_ty_env: forall var_id t b,
+        Maps.PTree.get var_id ty_env = Some (t, b) ->
+        (if b
+         then { v & Maps.PTree.get var_id val_env = Some v & wt_value v t }
+         else Maps.PTree.get var_id val_env = None)
+        * List.In (var_id, t) (f.(fn_params) ++ f.(fn_temps));
+    }.
+
+  Inductive wt_cont_call[St]: ctxt Empty_set Empty_set fundef vardef -> @cont St -> type -> Type :=
+  | wt_Kstop: forall ctx,
+      wt_cont_call ctx Kstop t_nat
+  | wt_Kcall: forall ctx f e locals k t ty_env
+                     (Hwt_fn: wt_function ctx f)
+                     (Hwt_env: wt_env f ty_env e)
+                     (Hwt_cont: wt_cont (with_pure ty_env (with_stack (List.map (fun _ => tt) locals) ctx)) k t),
+      wt_cont_call ctx (Kcall f e locals k) t
+
+  with wt_cont[St]: ctxt (type * bool) unit fundef vardef -> @cont St -> type -> Type :=
+  | wt_cont_Kbind: forall ctx id c k t_b t_c
+                          (Hget_pure: get_pure id ctx = Some (t_b, false))
+                          (Hwt_cmd: wt_cmd (set_pure id (t_b, true) ctx) c t_c)
+                          (Hwt_cont: wt_cont ctx k t_c),
+      wt_cont ctx (Kbind id c k) t_b
+  | wt_cont_Kloop1: forall ctx c_cond c_body k
+                           (Hwt_cond: wt_cmd ctx c_cond t_bool)
+                           (Hwt_body: wt_cmd ctx c_body t_unit)
+                           (Hwt_cont: wt_cont ctx k t_unit),
+      wt_cont ctx (Kloop1 c_cond c_body k) t_bool
+  | wt_cont_Kloop2: forall ctx c_cond c_body k
+                           (Hwt_cond: wt_cmd ctx c_cond t_bool)
+                           (Hwt_body: wt_cmd ctx c_body t_unit)
+                           (Hwt_cont: wt_cont ctx k t_unit),
+      wt_cont ctx (Kloop2 c_cond c_body k) t_unit
+  | wt_cont_other: forall ctx k tret
+                          (Hwt_cont_call: wt_cont_call (with_pure (Maps.PTree.empty _) (with_stack [] ctx)) k tret),
+      wt_cont ctx k tret
+  .
+
+  Record wt_State {St: Store} {Hp: Heap} (f: function) (c: cmd) (k: cont)
+    (e: map_ctxt value) (locals: list (@name St)) (s: Primitives.State St Hp)
+    (ctx: ctxt (type * bool) unit fundef vardef) (t: type): Type :=
+    {
+      State_wt_function: wt_function (with_pure (Maps.PTree.empty _) (with_stack [] ctx)) f;
+      State_wt_cmd: wt_cmd ctx c t;
+      State_wt_cont: @wt_cont St ctx k t;
+      State_wt_env: wt_env f ctx e;
+      State_wt_stack: ctxt_stack ctx = List.map (fun _ => tt) locals;
+    }.
+
+  Inductive wt_state {St: Store} {Hp: Heap} (p: program): @state St Hp -> Type :=
+  | wt_State_intro: forall f c k e locals s ctx t
+                           (Hwt_State: wt_State f c k e locals s ctx t),
+      wt_state p (State f c k e locals s)
+  | wt_Callstate: forall f args k s sig ctx
+                         (Hwt_fundef: wt_fundef (mk_glob_ctxt p) f)
+                         (Hwt_args: wt_fundef_call args f)
+                         (Hsig: funsig f sig)
+                         (Hwt_cont: wt_cont ctx k sig.(sig_res)),
+      wt_state p (Callstate f args k s)
+  | wt_Returnstate: forall v k s ctx t
+                           (Hwt_res: wt_value v t)
+                           (Hwt_cont: wt_cont ctx k t),
+      wt_state p (Returnstate v k s)
+  .
+
+  Lemma set_params_in_some_wt:
+    forall (params: list (AST.ident * type)) (args: list value)
+           (Hpsb: ListExt.SBinds params)
+           (Hf2: ListExt.Forall2T wt_value args (List.map snd params))
+           id t (HIn: In (id, t) params),
+      exists v, Maps.PTree.get id (set_params params args) = Some v /\ wt_value v t.
+  Proof.
+    induction params as [|[id1 t1] params IH]; cbn; intros args Hpsb Hf2 id t HIn.
+    - contradiction.
+    - inversion Hf2 as [|v ? args' ? Hwtv Hf2_rest]; subst.
+      destruct HIn as [Heq | HIn].
+      + inversion Heq; subst id1 t1.
+        exists v; split; [ apply Maps.PTree.gss | exact Hwtv ].
+      + assert (Hne: id <> id1)
+          by (eapply ListExt.SBinds_tl_neq with (a := id1) (b := t1) (a' := id) (b' := t);
+              [ exact Hpsb | exact HIn ]).
+        assert (Hsb': ListExt.SBinds params) by (inversion Hpsb; assumption).
+        destruct (IH _ Hsb' Hf2_rest _ _ HIn) as [v' [Hget Hwt]].
+        exists v'; split; [| exact Hwt ].
+        rewrite Maps.PTree.gso by exact Hne; exact Hget.
+  Qed.
+
+  Lemma set_params_get_not_in:
+    forall (params: list (AST.ident * type)) (args: list value) id
+      (HNI: ~ In id (map fst params)),
+      Maps.PTree.get id (set_params params args) = None.
+  Proof.
+    induction params as [|[id1 t1] params IH]; intros args id HNI.
+    - destruct args; cbn; apply Maps.PTree.gempty.
+    - destruct args as [|v args']; cbn; [apply Maps.PTree.gempty |].
+      rewrite Maps.PTree.gso by (intros eq; subst; apply HNI; now left).
+      apply IH. intros HIn; apply HNI; now right.
+  Qed.
+
+  Definition id_type_eq_dec : forall (x y: AST.ident * type), {x = y} + {x <> y}.
+  Proof.
+    intros [id1 t1] [id2 t2].
+    destruct (Pos.eq_dec id1 id2);
+      [destruct (type_eq_dec t1 t2);
+       [ left; congruence | right; intros [=]; congruence ]
+      | right; intros [=]; congruence ].
+  Defined.
+
+  Lemma wt_env_init
+    (ctx: ctxt Empty_set Empty_set fundef vardef)
+    (f: function) (args: list value)
+    (Hwt_fn: wt_function ctx f)
+    (Hwt_args: ListExt.Forall2T wt_value args (List.map snd f.(fn_params))) :
+    wt_env f (ctxt_pure (mk_function_ctxt f.(fn_params) f.(fn_temps) ctx))
+              (set_params f.(fn_params) args).
+  Proof.
+    pose proof (wt_fn_params_sbinds Hwt_fn) as Hpsb.
+    pose proof (wt_fn_temps_sbinds Hwt_fn) as Htsb.
+    pose proof (wt_fn_params_temps_distinct Hwt_fn) as Hdist.
+    assert (Htemp_not_param: forall id t,
+               In (id, t) f.(fn_temps) -> ~ In id (map fst f.(fn_params))).
+    { intros id t HInT HInPfst.
+      rewrite Forall_forall in Hdist.
+      apply in_map_iff in HInPfst as [[ip tp] [Hfst HInp]]; cbn in Hfst; subst ip.
+      apply (Hdist _ HInp).
+      exists (id, t); split; [exact HInT | reflexivity]. }
+    refine {|
+      wt_val_env := _;
+      wv_ty_env := _;
+    |}.
+    - (* wt_val_env *)
+      intros id t HIn.
+      exists t.
+      destruct (in_dec id_type_eq_dec (id, t) f.(fn_params)) as [HInP | HnotP].
+      + (* param case *)
+        destruct (Maps.PTree.get id (set_params f.(fn_params) args)) as [v|] eqn:E.
+        * left.
+          destruct (set_params_in_some_wt _ _ Hpsb Hwt_args _ _ HInP) as [v' [Hget Hwt]].
+          rewrite Hget in E; inversion E; subst; exact Hwt.
+        * exfalso.
+          destruct (set_params_in_some_wt _ _ Hpsb Hwt_args _ _ HInP) as [v [Hget _]].
+          rewrite Hget in E; discriminate.
+      + (* not in params: must be in temps *)
+        assert (HInT: In (id, t) f.(fn_temps)).
+        { apply in_app_or in HIn as [|]; [contradiction | assumption]. }
+        rewrite (set_params_get_not_in _ args id (Htemp_not_param _ _ HInT)).
+        exact (Facts.mk_function_ctxt_pure_get_temp _ _ _ Hpsb Htsb Hdist _ _ HInT).
+    - (* wv_ty_env *)
+      intros id t b Hget.
+      destruct b.
+      + (* b = true: id is a param *)
+        assert (HInP: In (id, t) f.(fn_params)).
+        { pose proof (Facts.mk_function_ctxt_pure_get_inv _ _ _ _ _ _ Hget) as Hcase.
+          destruct Hcase as [[_ HInP] | [Hbf _]]; [exact HInP | discriminate]. }
+        split; [| apply in_or_app; now left ].
+        destruct (Maps.PTree.get id (set_params f.(fn_params) args)) as [v|] eqn:E.
+        * exists v; [reflexivity |].
+          destruct (set_params_in_some_wt _ _ Hpsb Hwt_args _ _ HInP) as [v' [Hget' Hwt]].
+          rewrite Hget' in E; inversion E; subst; exact Hwt.
+        * exfalso.
+          destruct (set_params_in_some_wt _ _ Hpsb Hwt_args _ _ HInP) as [v [Hget' _]].
+          rewrite Hget' in E; discriminate.
+      + (* b = false: id is a temp *)
+        assert (HInT: In (id, t) f.(fn_temps)).
+        { pose proof (Facts.mk_function_ctxt_pure_get_inv _ _ _ _ _ _ Hget) as Hcase.
+          destruct Hcase as [[Hbt _] | [_ HInT]]; [discriminate | exact HInT]. }
+        split; [| apply in_or_app; now right ].
+        apply set_params_get_not_in.
+        exact (Htemp_not_param _ _ HInT).
+  Defined.
+
+End Typing.
 
 Module Facts.
 

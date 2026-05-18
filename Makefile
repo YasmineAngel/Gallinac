@@ -1,4 +1,4 @@
-.PHONY: all clean examples extraction
+.PHONY: all clean examples extraction FORCE
 .SUFFIXES:
 
 all: Makefile.rocq
@@ -29,6 +29,9 @@ extraction: extraction/STAMP
 extraction/STAMP: Makefile.rocq Makefile.examples.rocq examples/Reverse/ReverseReify.vo examples/Reverse/ReverseExtraction.v
 	rocq repl -R theories GallinaC -R examples GallinaC.Examples -batch -load-vernac-source examples/Reverse/ReverseExtraction.v
 	touch extraction/STAMP
+
+%.vo: Makefile.rocq FORCE
+	+$(MAKE) -f Makefile.rocq $@
 
 INCLUDE_EXTRACTION = $(addprefix -I , $(wildcard ./extraction))
 
@@ -72,6 +75,8 @@ build/%.S: %c | build/
 
 %/:
 	mkdir --parents $@
+
+FORCE:
 
 .SECONDEXPANSION:
 reversec.depend: $$(wildcard ./extraction/*.ml ./extraction/*.mli)

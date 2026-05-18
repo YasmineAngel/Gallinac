@@ -6,3 +6,4 @@ examples/Reverse/ReverseExecution.v
 examples/Reverse/ReverseReify.v
 examples/Reverse/ReverseOpSem.v
 examples/List/List.v
+examples/Reverse/ReverseDenotation.v

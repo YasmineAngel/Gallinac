@@ -56,6 +56,13 @@ Definition get_global {P S GF GV} x (c: ctxt P S GF GV): option _ :=
   | Some b => Globalenvs.Genv.find_def (ctxt_global c) b
   | None => None
   end.
+
+Definition add_global [P S GF GV]
+  (ctx: ctxt P S GF GV)
+  (idg: AST.ident * AST.globdef GF GV)
+  : ctxt P S GF GV :=
+  with_global (Globalenvs.Genv.add_global (ctxt_global ctx) idg) ctx.
+
 (* Definition set_global {P S GF GV} x y (c: ctxt P S GF GV) := with_global (PTree.set x y (ctxt_global c)) c. *)
 Definition get_stack {P S GF GV} n (c: ctxt P S GF GV): option S := List.nth_error (ctxt_stack c) n.
 Definition set_stack {P S GF GV} n y (c: ctxt P S GF GV) := with_stack (ListExt.set_nth (ctxt_stack c) n y) c.
@@ -74,6 +81,42 @@ Module Facts.
 
   Lemma with_pure_with_pure {P P1 P2 S GF GV: Type} {ctx: ctxt P S GF GV} {p1: map_ctxt P1} {p2: map_ctxt P2}: with_pure p2 (with_pure p1 ctx) = with_pure p2 ctx.
   Proof.
+    reflexivity.
+  Qed.
+
+  Lemma get_global_with_pure {P P' S GF GV: Type} (pure: map_ctxt P') (ctx: ctxt P S GF GV) id:
+    get_global id (with_pure pure ctx) = get_global id ctx.
+  Proof.
+    reflexivity.
+  Qed.
+
+  Lemma get_global_with_stack {P S S' GF GV: Type} (st: list S') (ctx: ctxt P S GF GV) id:
+    get_global id (with_stack st ctx) = get_global id ctx.
+  Proof.
+    reflexivity.
+  Qed.
+
+  Lemma get_global_add_global_neq [P S GF GV] (ctx: ctxt P S GF GV) idg id
+    (Hneq: fst idg <> id):
+    get_global id (add_global ctx idg) = get_global id ctx.
+  Proof.
+    destruct idg as [id' g]; cbn in Hneq.
+    unfold get_global, add_global, with_global; cbn.
+    unfold Globalenvs.Genv.find_symbol, Globalenvs.Genv.find_def, Globalenvs.Genv.add_global; cbn.
+    rewrite PTree.gso by (intros ?; subst; congruence).
+    destruct (PTree.get id (Globalenvs.Genv.genv_symb (ctxt_global ctx))) as [b|] eqn:Hsym;
+      [| reflexivity ].
+    rewrite PTree.gso; [ reflexivity |].
+    apply Coqlib.Plt_ne.
+    eapply (Globalenvs.Genv.genv_symb_range (ctxt_global ctx)); eassumption.
+  Qed.
+
+  Lemma get_global_add_global_eq [P S GF GV] (ctx: ctxt P S GF GV) id g:
+    get_global id (add_global ctx (id, g)) = Some g.
+  Proof.
+    unfold get_global, add_global, with_global; cbn.
+    unfold Globalenvs.Genv.find_symbol, Globalenvs.Genv.find_def, Globalenvs.Genv.add_global; cbn.
+    rewrite PTree.gss, PTree.gss.
     reflexivity.
   Qed.
 

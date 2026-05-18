@@ -26,20 +26,20 @@ Inductive wt_cmd: ctxt (type * bool) unit fundef vardef -> cmd -> type -> Type :
 | wt_while: forall {ty_ctxt c_cond c_body id_cond id_body},
     wt_cmd ty_ctxt c_cond t_bool -> wt_cmd ty_ctxt c_cond t_unit -> wt_cmd ty_ctxt (c_while c_cond id_cond c_body id_body) t_unit
 | wt_read_var : forall ty_ctxt n t,
-    ground t ->
+    Ground t ->
     wt_cmd ty_ctxt (c_read_var n t) t
 | wt_write_var : forall ty_ctxt n e t,
-    wt_expr ty_ctxt.(ctxt_pure) e t -> ground t ->
+    wt_expr ty_ctxt.(ctxt_pure) e t -> Ground t ->
     wt_cmd ty_ctxt (c_write_var n t e) t_unit
 | wt_alloc_ptr : forall {ty_ctxt n t e id_ptr id_init},
-    wt_expr ty_ctxt.(ctxt_pure) e t -> ground t ->
+    wt_expr ty_ctxt.(ctxt_pure) e t -> Ground t ->
     wt_cmd ty_ctxt (c_alloc_ptr n t e id_ptr id_init) t_ptr
 | wt_read_ptr : forall ty_ctxt t p,
-    wt_expr ty_ctxt.(ctxt_pure) p t_ptr -> ground t ->
+    wt_expr ty_ctxt.(ctxt_pure) p t_ptr -> Ground t ->
     wt_cmd ty_ctxt (c_read_ptr p t) t
 | wt_write_ptr : forall ty_ctxt p t e,
     wt_expr ty_ctxt.(ctxt_pure) p t_ptr -> wt_expr ty_ctxt e t ->
-    ground t ->
+    Ground t ->
     wt_cmd ty_ctxt (c_write_ptr p t e) t_unit
 | wt_free_ptr : forall ty_ctxt p,
     wt_expr ty_ctxt.(ctxt_pure) p t_ptr ->
@@ -56,7 +56,7 @@ Inductive wt_cmd: ctxt (type * bool) unit fundef vardef -> cmd -> type -> Type :
 | wt_app : forall
     {ty_ctxt f_id args fn}
     (Hfind_fn: Ctxt.get_global f_id ty_ctxt = Some (AST.Gfun (AST.Internal fn)))
-    (Hreturn_ground: ground fn.(fn_return))
+    (Hreturn_ground: Ground fn.(fn_return))
     (Et_args: List.map snd fn.(fn_params) = List.map snd args)
     (WT_args: Forall2T (wt_expr ty_ctxt) (List.map fst args) (List.map snd args)),
     wt_cmd ty_ctxt (c_app f_id fn.(fn_return) args) fn.(fn_return)
@@ -81,3 +81,53 @@ Definition wt_globvar := wt_globvar cmd f_extra.
 Definition wt_globdef := wt_globdef f_extra wt_f_extra wt_cmd.
 
 Definition wt_program := wt_program wt_f_extra wt_cmd wt_p_extra.
+
+Lemma wt_cmd_mono:
+  forall (ctx ctx': ctxt (type * bool) unit fundef vardef),
+    Ctxt.ctxt_pure ctx = Ctxt.ctxt_pure ctx' ->
+    Ctxt.ctxt_stack ctx = Ctxt.ctxt_stack ctx' ->
+    (forall id g, Ctxt.get_global id ctx = Some g ->
+                  Ctxt.get_global id ctx' = Some g) ->
+    forall c t, wt_cmd ctx c t -> wt_cmd ctx' c t.
+Proof.
+  intros ctx ctx' Hpure Hstack Hmono c t H.
+  revert ctx' Hpure Hstack Hmono.
+  induction H; intros ctx' Hpure Hstack Hmono.
+  - apply wt_ret; rewrite <- Hpure; assumption.
+  - apply (wt_bind (t_b := t_b)).
+    + unfold get_pure in *; rewrite <- Hpure; assumption.
+    + apply IHwt_cmd1; assumption.
+    + apply IHwt_cmd2.
+      * unfold set_pure, with_pure; cbn; f_equal; assumption.
+      * unfold set_pure, with_pure; cbn; assumption.
+      * intros id' g HG.
+        unfold set_pure, with_pure, get_global in *; cbn in *.
+        apply Hmono. exact HG.
+  - apply wt_if;
+      [ rewrite <- Hpure; assumption
+      | apply IHwt_cmd1; assumption
+      | apply IHwt_cmd2; assumption ].
+  - apply wt_while; [ apply IHwt_cmd1 | apply IHwt_cmd2 ]; assumption.
+  - apply wt_read_var; assumption.
+  - apply wt_write_var; [ rewrite <- Hpure; assumption | assumption ].
+  - apply wt_alloc_ptr; [ rewrite <- Hpure; assumption | assumption ].
+  - apply wt_read_ptr; [ rewrite <- Hpure; assumption | assumption ].
+  - apply wt_write_ptr;
+      [ rewrite <- Hpure; assumption
+      | rewrite <- Hpure; assumption
+      | assumption ].
+  - apply wt_free_ptr; rewrite <- Hpure; assumption.
+  - apply wt_shift_fw_ptr; rewrite <- Hpure; assumption.
+  - apply wt_shift_bw_ptr; rewrite <- Hpure; assumption.
+  - apply wt_ptr_eq; rewrite <- Hpure; assumption.
+  - apply (wt_app (fn := fn)).
+    + apply Hmono. exact Hfind_fn.
+    + exact Hreturn_ground.
+    + exact Et_args.
+    + clear -Hpure WT_args.
+      revert WT_args.
+      change (Ctxt.ctxt_pure ty_ctxt) with (ty_ctxt: map_ctxt _) in Hpure.
+      change (Ctxt.ctxt_pure ctx') with (ctx': map_ctxt _) in Hpure.
+      rewrite Hpure.
+      intros; assumption.
+Qed.
