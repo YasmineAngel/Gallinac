@@ -59,9 +59,75 @@ Module List.
     write_ptr next_ptr ptr ;;
     ret new_node.
 
+Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) (s0 : State ListStore list_heap_carrier):
+  {{ fun s => s = s0 /\
+              Facts.WValid (Primitives.heap s) ptr /\
+              d_ofst <> n_ofst /\
+              (d_ofst < 2)%N /\
+              (n_ofst < 2)%N /\
+              exists bid, GenId.get (list_heap_to_allocator (heap s)) = Some bid }}
+    cons ptr n_ofst d_ofst v
+  {{ fun new_node s' =>
+     Primitives.store s' = Primitives.store s0 /\
+     s' <> s0 /\
+     exists hp_alloc data_ptr next_ptr hp_mut1,
+       list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL) = Some (hp_alloc, new_node) /\
+       Pointer.shift_fw new_node d_ofst = Some data_ptr /\
+       list_heap_mutate hp_alloc data_ptr (encode v) = Some hp_mut1 /\
+       Pointer.shift_fw new_node n_ofst = Some next_ptr /\
+       list_heap_mutate hp_mut1 next_ptr (StorablePtr.ptr_encode ptr) = Some (heap s') }}.
+
+Proof. Admitted.
+
+
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
       do next_ptr <- ptr ~+> n_ofst;
       read_ptr next_ptr.
+
+  Lemma tl_spec (ptr next_ptr next_node: Pointer.t) (n_ofst: N.t) (s0 : State ListStore list_heap_carrier):
+    {{ fun s => s = s0 /\ 
+                Facts.WValid (Primitives.heap s) ptr /\ 
+                Pointer.Allows ptr Operation.Read /\
+                Pointer.shift_fw ptr n_ofst = Some next_ptr /\
+                Facts.WValid (Primitives.heap s) next_ptr /\
+                Pointer.Allows next_ptr Operation.Read /\
+                Heap.lookup (Primitives.heap s) next_ptr = Some (encode next_node) }}
+      tl ptr n_ofst
+    {{ fun res s' => res = next_node /\ s' = s0 }}.
+
+ Proof.   
+  intros s [-> [Hptr_v [Hptr_r [Hshift [Hnext_v [Hnext_r Hlookup]]]]]].
+  unfold tl, shift_fw_ptr, read_ptr,
+         partial_exception_hoare, bind, ret, get, put.
+  cbn.
+  destruct (Facts.weakly_valid (heap s0) ptr) eqn:Ewk_ptr.
+  2: {
+    destruct (Facts.weakly_valid_spec (heap s0) ptr) as [Hwv | Hnw].
+    - discriminate.
+    - contradiction.
+  }
+  cbn.
+  rewrite Hshift. cbn.
+  destruct (Facts.weakly_valid (heap s0) next_ptr) eqn:Ewk_next.
+  2: {
+    destruct (Facts.weakly_valid_spec (heap s0) next_ptr) as [Hwv | Hnw].
+    - discriminate.
+    - contradiction.
+  }
+  cbn.
+  destruct (Pointer.allows next_ptr Operation.Read) eqn:Eallows_next.
+  2: {
+    destruct (Pointer.allows_spec next_ptr Operation.Read) as [Ha | Hna].
+    - discriminate.
+    - contradiction.
+  }
+  cbn.
+  assert (Hlookup' : list_heap_lookup (heap s0) next_ptr = Some (encode next_node)).
+  { exact Hlookup. }
+  rewrite Hlookup'. cbn.
+  split; reflexivity.
+Qed.
+
 
   Definition nth (ptr: Pointer.t) (n_ofst: N.t) (nth: nat): program (State ListStore list_heap_carrier) Pointer.t :=
       do var (node: Pointer.t) <- ptr;
