@@ -77,7 +77,44 @@ Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) 
        Pointer.shift_fw new_node n_ofst = Some next_ptr /\
        list_heap_mutate hp_mut1 next_ptr (StorablePtr.ptr_encode ptr) = Some (heap s') }}.
 
-Proof. Admitted.
+Proof.
+  intros s [-> [HWValid [Hoffsets [Hd_lt [Hn_lt [bid Hbid]]]]]].  unfold List.cons, alloc_ptr, shift_fw_ptr, write_ptr,
+         partial_exception_hoare, bind, ret, get, put in *.
+  cbn.
+  destruct (list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL)) eqn:Ealloc.
+  2: {
+    exfalso.
+    assert (Hiff := list_heap_heap_obligation_9 (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL)).
+    assert (Hnone : ~ exists h' p, list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL) = Some (h', p)).
+    { intros [h' [p Hsome]]. rewrite Hsome in Ealloc. discriminate. }
+    rewrite <- Hiff in Hnone. apply Hnone.
+    exists bid. split; [exact Hbid | reflexivity].
+  }
+  destruct p as [hp_alloc new_node]. cbn.
+
+  destruct (Facts.weakly_valid hp_alloc new_node) eqn:Ewk.
+  2: {
+    exfalso.
+    destruct (Facts.weakly_valid_spec hp_alloc new_node) as [Hwv | Hnw].
+    - discriminate.
+    - apply Hnw. left.
+      unfold Facts.Valid.
+      exists (Addr.mkAddr bid 0).
+      exists (StorablePtr.ptr_encode Pointer.NULL).
+      split.
+      { apply (list_heap_heap_obligation_10 (heap s0) 2
+          (StorablePtr.ptr_encode Pointer.NULL) hp_alloc new_node bid Ealloc Hbid). }
+      { assert (Hmem := list_heap_heap_obligation_14 (heap s0) 2
+          (StorablePtr.ptr_encode Pointer.NULL) hp_alloc new_node Ealloc
+          (Addr.mkAddr bid 0) (StorablePtr.ptr_encode Pointer.NULL)).
+        apply Hmem. left. split.
+        - apply (list_heap_heap_obligation_12 (heap s0) 2
+            (StorablePtr.ptr_encode Pointer.NULL) hp_alloc new_node bid Ealloc Hbid).
+          exact (N.le_0_l 2).
+        - reflexivity. }
+  }
+   cbn.
+ Admitted.
 
 
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
