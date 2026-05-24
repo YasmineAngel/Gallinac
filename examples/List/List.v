@@ -29,26 +29,16 @@ Module List.
     {{ fun s => s = s0 /\ Facts.WValid (heap s) ptr /\ Pointer.Allows ptr Operation.Cmp}}
       is_empty ptr
     {{ fun res s' => Pointer.cmp ptr Pointer.NULL = Some res /\ s' = s0 }}.
-
   Proof.
-  intros s [-> [HWValid HAllows]].
-  unfold is_empty, eq_ptr, partial_exception_hoare.
-  cbn.
-  destruct (Facts.weakly_valid (Primitives.heap s0) ptr) eqn:Evalid.
-  2: { 
-    destruct (Facts.weakly_valid_spec (Primitives.heap s0) ptr); [ discriminate | contradiction ]. 
-  }
-  destruct (Pointer.allows ptr Operation.Cmp) eqn:Eallows.
-  2: { 
-    destruct (Pointer.allows_spec ptr Operation.Cmp); [ discriminate | contradiction ]. 
-  }
-  cbn.
-  unfold Pointer.cmp.
-  rewrite Eallows. 
-  cbn.
-  split.
-  -reflexivity.
-  -reflexivity.
+    unfold is_empty.
+    eapply sep_weaken.
+    - apply sep_eq_ptr_triple.
+    - intros s (-> & HWValid & HAllows).
+      split. { exact HWValid. }
+      split. { right. right. reflexivity. }
+      split. { exact HAllows. }
+      split. { constructor. }
+      intros b' Hcmp. split; auto.
   Qed.
 
   Definition cons [MS: MemStorable] (ptr: Pointer.t) (n_ofst: N.t) (d_ofst: N.t) (v: MS): program (State ListStore list_heap_carrier) Pointer.t :=
