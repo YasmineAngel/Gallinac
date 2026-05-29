@@ -66,45 +66,9 @@ Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) 
        list_heap_mutate hp_alloc data_ptr (encode v) = Some hp_mut1 /\
        Pointer.shift_fw new_node n_ofst = Some next_ptr /\
        list_heap_mutate hp_mut1 next_ptr (StorablePtr.ptr_encode ptr) = Some (heap s') }}.
-
-Proof.
-  intros s [-> [HWValid [Hoffsets [Hd_lt [Hn_lt [bid Hbid]]]]]].  unfold List.cons, alloc_ptr, shift_fw_ptr, write_ptr,
-         partial_exception_hoare, bind, ret, get, put in *.
-  cbn.
-  destruct (list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL)) eqn:Ealloc.
-  2: {
-    exfalso.
-    assert (Hiff := list_heap_heap_obligation_9 (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL)).
-    assert (Hnone : ~ exists h' p, list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL) = Some (h', p)).
-    { intros [h' [p Hsome]]. rewrite Hsome in Ealloc. discriminate. }
-    rewrite <- Hiff in Hnone. apply Hnone.
-    exists bid. split; [exact Hbid | reflexivity].
-  }
-  destruct p as [hp_alloc new_node]. cbn.
-
-  destruct (Facts.weakly_valid hp_alloc new_node) eqn:Ewk.
-  2: {
-    exfalso.
-    destruct (Facts.weakly_valid_spec hp_alloc new_node) as [Hwv | Hnw].
-    - discriminate.
-    - apply Hnw. left.
-      unfold Facts.Valid.
-      exists (Addr.mkAddr bid 0).
-      exists (StorablePtr.ptr_encode Pointer.NULL).
-      split.
-      { apply (list_heap_heap_obligation_10 (heap s0) 2
-          (StorablePtr.ptr_encode Pointer.NULL) hp_alloc new_node bid Ealloc Hbid). }
-      { assert (Hmem := list_heap_heap_obligation_14 (heap s0) 2
-          (StorablePtr.ptr_encode Pointer.NULL) hp_alloc new_node Ealloc
-          (Addr.mkAddr bid 0) (StorablePtr.ptr_encode Pointer.NULL)).
-        apply Hmem. left. split.
-        - apply (list_heap_heap_obligation_12 (heap s0) 2
-            (StorablePtr.ptr_encode Pointer.NULL) hp_alloc new_node bid Ealloc Hbid).
-          exact (N.le_0_l 2).
-        - reflexivity. }
-  }
-   cbn.
- Admitted.
+       
+Proof. 
+Admitted.
 
 
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
@@ -122,37 +86,29 @@ Proof.
       tl ptr n_ofst
     {{ fun res s' => res = next_node /\ s' = s0 }}.
 
- Proof.   
-  intros s [-> [Hptr_v [Hptr_r [Hshift [Hnext_v [Hnext_r Hlookup]]]]]].
-  unfold tl, shift_fw_ptr, read_ptr,
-         partial_exception_hoare, bind, ret, get, put.
-  cbn.
-  destruct (Facts.weakly_valid (heap s0) ptr) eqn:Ewk_ptr.
-  2: {
-    destruct (Facts.weakly_valid_spec (heap s0) ptr) as [Hwv | Hnw].
-    - discriminate.
-    - contradiction.
-  }
-  cbn.
-  rewrite Hshift. cbn.
-  destruct (Facts.weakly_valid (heap s0) next_ptr) eqn:Ewk_next.
-  2: {
-    destruct (Facts.weakly_valid_spec (heap s0) next_ptr) as [Hwv | Hnw].
-    - discriminate.
-    - contradiction.
-  }
-  cbn.
-  destruct (Pointer.allows next_ptr Operation.Read) eqn:Eallows_next.
-  2: {
-    destruct (Pointer.allows_spec next_ptr Operation.Read) as [Ha | Hna].
-    - discriminate.
-    - contradiction.
-  }
-  cbn.
-  assert (Hlookup' : list_heap_lookup (heap s0) next_ptr = Some (encode next_node)).
-  { exact Hlookup. }
-  rewrite Hlookup'. cbn.
-  split; reflexivity.
+ Proof.
+  unfold tl.
+  eapply sep_bind_rule with
+    (Q := fun np s1 =>
+       np = next_ptr /\
+       Heap.lookup (heap s1) next_ptr = Some (encode next_node) /\
+       s1 = s0).
+  - intro np.
+    eapply sep_weaken.
+    + apply sep_read_ptr_triple.
+    + intros s (Hnp & Hlookup & ->).
+      exists next_node. split.
+      * rewrite Hnp. exact Hlookup.
+      * split; reflexivity.
+  - eapply sep_weaken.
+    + apply sep_shift_fw_ptr_triple.
+    + intros s (-> & Hptrv & _ & Hshift & Hnextv & _ & Hlookup).
+      split. { exact Hptrv. }
+      exists next_ptr. split. { exact Hshift. }
+      split. { exact Hnextv. }
+      split. { reflexivity. }
+      split. { exact Hlookup. }
+      reflexivity.
 Qed.
 
 

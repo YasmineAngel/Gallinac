@@ -1,4 +1,4 @@
-From Stdlib Require Import FunctionalExtensionality PropExtensionality Nat Lia.
+From Stdlib Require Import FunctionalExtensionality PropExtensionality Nat Lia NArith.
 From GallinaC.Seplog Require Export PrimitivesTriples StateAssertion.
 Local Open Scope state_scope.
 
@@ -89,6 +89,43 @@ Proof.
     destruct (Pointer.allows_spec ptr_r Operation.Cmp); [ | contradiction ].
     discriminate Ecmp.
 Qed.
+
+Lemma sep_shift_fw_ptr_triple
+  {St: Store} {Hp: Heap}
+  (ptr: Pointer.t) (shift: N.t)
+  (Q: Pointer.t -> Pred (State St Hp)) :
+  {{ fun s =>
+       Facts.WValid (heap s) ptr /\
+       exists ptr', Pointer.shift_fw ptr shift = Some ptr' /\
+       Facts.WValid (heap s) ptr' /\
+       Q ptr' s }}
+    shift_fw_ptr ptr shift
+  {{ Q }}.
+Proof.
+  intros s (HWValid & ptr' & Hshift & HWValid' & HQ).
+  unfold shift_fw_ptr, partial_exception_hoare. cbn.
+  destruct (Facts.weakly_valid_spec (heap s) ptr) as [Hwv | Hnwv].
+  2: contradiction.
+  rewrite Hshift.
+  destruct (Facts.weakly_valid_spec (heap s) ptr') as [Hwv' | Hnwv'].
+  2: contradiction.
+  cbn. exact HQ.
+Qed.
+
+Lemma sep_read_ptr_triple
+  {St: Store} {Hp: Heap} {MS: MemStorable}
+  (ptr: Pointer.t)
+  (Q: obj MS -> Pred (State St Hp)) :
+  {{ fun s => exists v, Heap.lookup (heap s) ptr = Some (encode v) /\ Q v s }}
+    read_ptr ptr
+  {{ Q }}.
+Proof.
+  intros s (v & Hlookup & HQ).
+  unfold read_ptr, partial_exception_hoare. cbn.
+  rewrite Hlookup. rewrite encode_decode. cbn. exact HQ.
+Qed.
+
+
 
 Lemma sep_if_rule
   {S A : Type} (cond : program S bool) (m1 m2 : program S A)
