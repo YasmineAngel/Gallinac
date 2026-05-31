@@ -125,7 +125,35 @@ Proof.
   rewrite Hlookup. rewrite encode_decode. cbn. exact HQ.
 Qed.
 
+Lemma sep_write_ptr_triple
+  {St: Store} {Hp: Heap} {MS: MemStorable}
+  (ptr: Pointer.t) (val: obj MS)
+  (Q: unit -> Pred (State St Hp)) :
+  {{ fun s => exists h', Heap.mutate (heap s) ptr (encode val) = Some h' /\
+              Q tt {| store := store s; heap := h' |} }}
+    write_ptr ptr val
+  {{ Q }}.
+Proof.
+  intros s (h' & Hmutate & HQ).
+  unfold write_ptr, partial_exception_hoare. cbn.
+  rewrite Hmutate. cbn. exact HQ.
+Qed.
 
+Lemma sep_alloc_ptr_triple
+  {St: Store} {Hp: Heap} {MS: MemStorable}
+  (n: N.t) (val: obj MS)
+  (Q: Pointer.t -> Pred (State St Hp)) :
+  {{ fun s =>
+       (exists hp' ptr', Heap.alloc (heap s) n (encode val) = Some (hp', ptr')) /\
+       forall hp ptr, Heap.alloc (heap s) n (encode val) = Some (hp, ptr) ->
+       Q ptr {| store := store s; heap := hp |} }}
+    alloc_ptr n val
+  {{ Q }}.
+Proof.
+  intros s ((hp_ex & ptr_ex & Hex) & HQ).
+  unfold alloc_ptr, partial_exception_hoare. cbn.
+  rewrite Hex. cbn. exact (HQ hp_ex ptr_ex Hex).
+Qed.
 
 Lemma sep_if_rule
   {S A : Type} (cond : program S bool) (m1 m2 : program S A)

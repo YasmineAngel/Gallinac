@@ -21,6 +21,13 @@ Module List.
         write_var count ((c + 1)%N : N.t)
       );;
     read_var count.
+  
+  Lemma length_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) :
+  {{ fun s => s = s0 /\ llist ptr l s }}
+    length ptr (1%N)
+  {{ fun res s' => res = N.of_nat (Datatypes.length l) /\ heap s' = heap s0 }}.
+  
+  Proof. Admitted.
 
   Definition is_empty (ptr: Pointer.t): program (State ListStore list_heap_carrier) bool :=
     eq_ptr ptr Pointer.NULL.
@@ -67,8 +74,39 @@ Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) 
        Pointer.shift_fw new_node n_ofst = Some next_ptr /\
        list_heap_mutate hp_mut1 next_ptr (StorablePtr.ptr_encode ptr) = Some (heap s') }}.
        
-Proof. 
-Admitted.
+  Proof.
+    unfold cons.
+    eapply sep_bind_rule.
+    { intro new_node.
+      eapply sep_bind_rule.
+      { intro data_ptr.
+        eapply sep_seq_rule.
+        { eapply sep_bind_rule.
+          { intro next_ptr.
+            eapply sep_seq_rule.
+            { apply sep_ret_triple. }
+            { apply sep_write_ptr_triple. }
+          }
+          { apply sep_shift_fw_ptr_triple. }
+        }
+        { apply sep_write_ptr_triple. }
+      }
+      { apply sep_shift_fw_ptr_triple. }
+    }
+    - eapply sep_weaken.
+      + apply sep_alloc_ptr_triple.
+      + intros s (-> & _ & _ & Hd_bound & Hn_bound & (bid_val & Hbid_val)).
+        cbn.
+        destruct (list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL))
+          as [p | ] eqn:Halloc.
+        2: { exfalso.
+            destruct (heap s0) as [mbs b]; destruct b; cbn in *; discriminate. }
+        destruct p as [hp_alloc new_node].
+        split.
+        { exists hp_alloc, new_node. reflexivity. }
+        intros hp new_node' Halloc'.
+        destruct (Pointer.shift_fw new_node' d_ofst) as [data_ptr | ] eqn:Hd.
+  Admitted.
 
 
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
