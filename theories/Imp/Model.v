@@ -1292,6 +1292,29 @@ Section ListHeap.
       + specialize (IHmbs b EQ); rewrite IHmbs in E; discriminate.
   Qed.
 
+  Lemma memblock_with_one_fun mb o v1 v2 :
+    memblock_with_one mb o v1 = true ->
+    memblock_with_one mb o v2 = true ->
+    v1 = v2.
+  Proof.
+    revert o.
+    induction mb as [|[w|] mb]; intros [|o] H1 H2; cbn in *; try discriminate.
+    - destruct (Memval.eq_dec v1 w), (Memval.eq_dec v2 w); subst; auto; discriminate.
+    - eapply IHmb; eassumption.
+    - eapply IHmb; eassumption.
+  Qed.
+
+  Lemma memblocks_with_one_fun mbs b o v1 v2 :
+    memblocks_with_one mbs b o v1 = true ->
+    memblocks_with_one mbs b o v2 = true ->
+    v1 = v2.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b] H1 H2; cbn in *; try discriminate.
+    - eapply memblock_with_one_fun; eassumption.
+    - eapply IHmbs; eassumption.
+  Qed.
+
   Lemma memblock_contains_iff mb o :
     memblock_contains mb o = true <-> exists v, memblock_with_one mb o v = true.
   Proof.
@@ -1331,6 +1354,68 @@ Section ListHeap.
       intros H. apply H_fwd. exact H.
     - specialize (IHmbs b). destruct IHmbs as [H_fwd H_bwd].
       intros H. apply H_bwd. exact H.
+  Qed.
+
+  Lemma memblocks_sum_one_conflict b o v mbs :
+    memblocks_sum (memblocks_one b o v) mbs = None ->
+    exists v', memblocks_with_one mbs b o v' = true.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b] EQ; cbn in *; try discriminate.
+    - destruct (memblock_sum (memblock_one o v) mb) eqn:Em.
+      + destruct (memblocks_sum [] mbs) eqn:Er; discriminate.
+      + clear EQ IHmbs mbs.
+        generalize dependent o.
+        induction mb as [|[w|] mb]; intros [|o] Em; cbn in Em.
+        discriminate Em.
+        discriminate Em.
+        cbn.
+        exists w.
+        destruct (eq_dec w w); [ reflexivity | contradiction ].
+        destruct (memblock_sum (memblock_one o v) mb) eqn:E.
+        discriminate Em.
+        specialize (IHmb o E) as (v' & Hv').
+        exists v'.
+        cbn; exact Hv'.
+        destruct mb; cbn in Em; discriminate Em.
+        destruct (memblock_sum (memblock_one o v) mb) eqn:E.
+        discriminate Em.
+        specialize (IHmb o E) as (v' & Hv').
+        exists v'.
+        cbn; exact Hv'.
+        - destruct (memblocks_sum (memblocks_one b o v) mbs) eqn:Er.
+          cbn in EQ.
+          destruct mb; cbn in EQ; discriminate EQ.
+          specialize (IHmbs b Er) as (v' & Hv').
+          exists v'.
+          exact Hv'.
+  Qed.
+
+
+  Lemma memblock_with_one_conflict mb o v v' :
+    memblock_with_one mb o v' = true ->
+    memblock_sum (memblock_one o v) mb = None.
+  Proof.
+    revert o.
+    induction mb as [|[w|] mb]; intros [|o] H; cbn in *; try discriminate.
+    - destruct (Memval.eq_dec v' w); [ subst; reflexivity | discriminate ].
+    - destruct (memblock_sum (memblock_one o v) mb) eqn:E; [ | reflexivity ].
+      now rewrite (IHmb o H) in E.
+    - destruct (memblock_sum (memblock_one o v) mb) eqn:E; [ | reflexivity ].
+      now rewrite (IHmb o H) in E.
+  Qed.
+
+
+  Lemma memblocks_with_one_conflict mbs b o v v' :
+    memblocks_with_one mbs b o v' = true ->
+    memblocks_sum (memblocks_one b o v) mbs = None.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b] H; cbn in *; try discriminate.
+    - rewrite (memblock_with_one_conflict mb o v v' H).
+      now destruct (memblocks_sum [] mbs).
+    - rewrite (IHmbs b H).
+      destruct mb; reflexivity.
   Qed.
 
   Lemma memblock_with_one_one_false o v o' w :

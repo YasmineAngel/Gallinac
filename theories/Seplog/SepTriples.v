@@ -155,6 +155,27 @@ Proof.
   rewrite Hex. cbn. exact (HQ hp_ex ptr_ex Hex).
 Qed.
 
+Lemma sep_read_var_triple
+  {St: Store} {Hp: Heap} {MS: MemStorable}
+  (varname: name)
+  (Q: obj MS -> Pred (State St Hp)) :
+  {{ fun s => exists v, Store.BindsTo varname (encode v) (store s) /\ Q v s }}
+    read_var varname
+  {{ Q }}.
+Proof. apply read_var_triple. Qed.
+
+
+Lemma sep_write_var_triple
+  {St: Store} {Hp: Heap} {MS: MemStorable}
+  (varname: name) (val: obj MS)
+  (Q: unit -> Pred (State St Hp)) :
+  {{ fun s => exists v_old, Store.BindsTo varname v_old (store s) /\
+              Q tt {| store := Store.mutate_unchecked (store s) varname (encode val);
+                      heap  := heap s |} }}
+    write_var varname val
+  {{ Q }}.
+Proof. apply write_var_triple. Qed.
+
 Lemma sep_alloc_concrete_triple {St: Store} {Hp: Heap} {MS: MemStorable} 
   (n: N.t) (val: obj MS) (alloc_func : Hp -> N.t -> memval -> option (Hp * Pointer.t))
   (Q: Pointer.t -> Pred (State St Hp)) :
