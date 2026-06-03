@@ -73,41 +73,137 @@ Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) 
        list_heap_mutate hp_alloc data_ptr (encode v) = Some hp_mut1 /\
        Pointer.shift_fw new_node n_ofst = Some next_ptr /\
        list_heap_mutate hp_mut1 next_ptr (StorablePtr.ptr_encode ptr) = Some (heap s') }}.
-       
-  Proof.
+
+ Proof.
     unfold cons.
-    eapply sep_bind_rule.
-    { intro new_node.
-      eapply sep_bind_rule.
-      { intro data_ptr.
-        eapply sep_seq_rule.
-        { eapply sep_bind_rule.
-          { intro next_ptr.
-            eapply sep_seq_rule.
-            { apply sep_ret_triple. }
-            { apply sep_write_ptr_triple. }
-          }
-          { apply sep_shift_fw_ptr_triple. }
-        }
-        { apply sep_write_ptr_triple. }
-      }
-      { apply sep_shift_fw_ptr_triple. }
-    }
+    eapply sep_bind_rule with
+      (Q := fun new_node s1 =>
+        store s1 = store s0 /\
+        exists ha,
+          Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+          heap s1 = ha /\
+          Facts.WValid (heap s1) new_node /\
+          (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst).
+    - intro new_node.
+      eapply sep_bind_rule with
+        (Q := fun data_ptr s2 =>
+          store s2 = store s0 /\
+          exists ha,
+            Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+            heap s2 = ha /\
+            Facts.WValid (heap s2) new_node /\
+            Pointer.shift_fw new_node d_ofst = Some data_ptr /\
+            (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst).
+      + intro data_ptr.
+        eapply sep_seq_rule with
+          (Q := fun s3 =>
+            store s3 = store s0 /\
+            exists ha,
+              Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+              Pointer.shift_fw new_node d_ofst = Some data_ptr /\
+              Heap.mutate ha data_ptr (encode v) = Some (heap s3) /\
+              Facts.WValid (heap s3) new_node /\
+              (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst).
+        * eapply sep_bind_rule with
+            (Q := fun next_ptr s4 =>
+              store s4 = store s0 /\
+              exists ha,
+                Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+                Pointer.shift_fw new_node d_ofst = Some data_ptr /\
+                Heap.mutate ha data_ptr (encode v) = Some (heap s4) /\
+                Pointer.shift_fw new_node n_ofst = Some next_ptr /\
+                (d_ofst < 2)%N /\ (n_ofst < 2)%N).
+          -- intro next_ptr.
+             eapply sep_seq_rule with
+               (Q := fun s5 =>
+                 store s5 = store s0 /\
+                 heap s5 <> heap s0 /\
+                 exists ha hm,
+                   Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+                   Pointer.shift_fw new_node d_ofst = Some data_ptr /\
+                   Heap.mutate ha data_ptr (encode v) = Some hm /\
+                   Pointer.shift_fw new_node n_ofst = Some next_ptr /\
+                   Heap.mutate hm next_ptr (encode ptr) = Some (heap s5)).
+             ++ eapply sep_weaken.
+                ** apply sep_ret_triple.
+                ** intros s [Hst [Hne [ha [hm [HA [HD [HM1 [HN HM2]]]]]]]].
+                   refine (conj Hst (conj _ (ex_intro _ ha (ex_intro _ data_ptr
+                     (ex_intro _ next_ptr (ex_intro _ hm _)))))).
+                   { intro Heq; apply Hne; exact (f_equal heap Heq). }
+                   exact (conj HA (conj HD (conj HM1 (conj HN HM2)))).
+             ++ eapply sep_weaken.
+                ** apply sep_write_ptr_triple.
+                ** intros s [Hst [ha [HA [HD [HM1 [HN [Hd Hn]]]]]]].
+                   destruct (alloc_mutate_mutate_succeeds_gen
+                     (heap s0) 2 (encode Pointer.NULL)
+                     ha new_node d_ofst data_ptr n_ofst next_ptr
+                     (heap s) (encode v) (encode ptr)
+                     HA Hd HD HM1 Hn HN) as [lh2 HM2].
+                   exists lh2. split. exact HM2.
+                   split. exact Hst.
+                   split.
+                   { exact (alloc_heap_neq_orig_gen
+                       (heap s0) 2 _ ha new_node data_ptr next_ptr
+                       (heap s) lh2 (encode v) (encode ptr) HA HM1 HM2). }
+                   exists ha, (heap s).
+                   exact (conj HA (conj HD (conj HM1 (conj HN HM2)))).
+          -- eapply sep_weaken.
+             ** apply sep_shift_fw_ptr_triple.
+             ** intros s [Hst [ha [HA [HD [HM1 [HWV [Hd [Hn _]]]]]]]].
+                split. exact HWV.
+                destruct (alloc_shift_fw_succeeds_gen
+                  (heap s0) 2 (encode Pointer.NULL) ha new_node n_ofst HA Hn) as [np HN].
+                exists np. split. exact HN.
+                split.
+                { exact (alloc_shift_wvalid_after_mut_gen
+                    (heap s0) 2 (encode Pointer.NULL)
+                    ha new_node n_ofst np (heap s)
+                    data_ptr (encode v) HA Hn HN HM1). }
+                exact (conj Hst (ex_intro _ ha
+                  (conj HA (conj HD (conj HM1 (conj HN (conj Hd Hn))))))).
+        * eapply sep_weaken.
+          -- apply sep_write_ptr_triple.
+          -- intros s_wr [Hst_wr [ha_wr [HA_wr [Heq_wr [HWV_wr [HD_wr [Hd_wr [Hn_wr Hdiff_wr]]]]]]]].
+             destruct (alloc_mutate_succeeds_gen
+               (heap s0) 2 (encode Pointer.NULL) ha_wr new_node d_ofst data_ptr (encode v)
+               HA_wr Hd_wr HD_wr) as [lh_mut HM1_mut].
+             exists lh_mut. split.
+             { rewrite Heq_wr. exact HM1_mut. }
+             split.
+             { exact Hst_wr. }
+             exists ha_wr.
+             refine (conj HA_wr (conj HD_wr (conj HM1_mut (conj _ _)))).
+             ++ eapply alloc_wvalid_after_mut_gen; eauto. reflexivity.
+             ++ exact (conj Hd_wr (conj Hn_wr Hdiff_wr)).
+      + eapply sep_weaken.
+        * apply sep_shift_fw_ptr_triple.
+        * intros s [Hst [ha [HA [Heq [HWV [Hd [Hn Hdiff]]]]]]].
+          split. exact HWV.
+          destruct (alloc_shift_fw_succeeds_gen
+            (heap s0) 2 (encode Pointer.NULL) ha new_node d_ofst HA Hd) as [dp Hsd].
+          exists dp. split. exact Hsd.
+          split.
+          { rewrite Heq.
+            exact (alloc_shift_wvalid_gen
+                     (heap s0) 2 (encode Pointer.NULL) ha new_node d_ofst dp HA Hd Hsd). }
+          exact (conj Hst (ex_intro _ ha
+            (conj HA (conj Heq (conj HWV (conj Hsd (conj Hd (conj Hn Hdiff)))))))).
     - eapply sep_weaken.
       + apply sep_alloc_ptr_triple.
-      + intros s (-> & _ & _ & Hd_bound & Hn_bound & (bid_val & Hbid_val)).
-        cbn.
-        destruct (list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL))
-          as [p | ] eqn:Halloc.
-        2: { exfalso.
-            destruct (heap s0) as [mbs b]; destruct b; cbn in *; discriminate. }
-        destruct p as [hp_alloc new_node].
+      + intros s [Heqs [_ [Hdiff [Hd [Hn [bid Hbid]]]]]].
+        subst s.
         split.
-        { exists hp_alloc, new_node. reflexivity. }
-        intros hp new_node' Halloc'.
-        destruct (Pointer.shift_fw new_node' d_ofst) as [data_ptr | ] eqn:Hd.
-  Admitted.
-
+        * destruct (heap s0) as [mbs b] eqn:Hh; destruct b.
+          { eexists _, _; cbn; reflexivity. }
+          { cbn in Hbid; discriminate. }
+        * intros hp new_node_p HA_p.
+          split. { reflexivity. }
+          exists hp.
+          refine (conj HA_p (conj eq_refl (conj _ _))).
+          -- eapply alloc_wvalid_gen with (v := encode Pointer.NULL); eauto.
+             reflexivity.
+          -- exact (conj Hd (conj Hn Hdiff)).
+  Qed.
 
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
       do next_ptr <- ptr ~+> n_ofst;

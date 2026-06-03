@@ -20,6 +20,9 @@ Proof.
   destruct (Pointer.eq_dec t t0); constructor; congruence.
 Qed.
 
+Lemma eq_dec_refl (v: memval): (if eq_dec v v then true else false) = true.
+Proof. destruct (eq_dec v v) as [|Hne]; [ reflexivity | exfalso; apply Hne; reflexivity ]. Qed.
+
 Structure MemStorable :=
   {
     obj :> Type;

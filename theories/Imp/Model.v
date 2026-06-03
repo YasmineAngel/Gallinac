@@ -1057,6 +1057,8 @@ Section ListHeap.
     now rewrite Bool.orb_false_r, memblocks_sum_id_r.
   Qed.
 
+  Canonical list_heap_separation.
+
   Program Definition list_heap_memory: Memory :=
     {|
       mem := list_heap_separation;
@@ -1107,6 +1109,8 @@ Section ListHeap.
 
   Next Obligation.
   Admitted.
+
+  Canonical list_heap_memory.
 
   Program Definition list_heap_heap: Heap :=
     {|
@@ -1175,8 +1179,983 @@ Section ListHeap.
   Next Obligation.
   Admitted.
 
+  Canonical list_heap_heap.
+
+  Lemma memblocks_one_length b o v : length (memblocks_one b o v) = S b.
+  Proof. induction b; cbn; lia. Qed.
+
+  Fixpoint memblock_clear (mb: memblock) (o: nat): memblock :=
+    match o, mb with
+    | 0, _::mb => None::mb
+    | S o, x::mb => x::(memblock_clear mb o)
+    | _, [] => []
+    end.
+
+  Fixpoint memblocks_clear (mbs: list memblock) (b o: nat): list memblock :=
+    match b, mbs with
+    | 0, mb::mbs => (memblock_clear mb o)::mbs
+    | S b, mb::mbs => mb::(memblocks_clear mbs b o)
+    | _, [] => []
+    end.
+
+  Lemma memblocks_clear_length mbs b o :
+    length (memblocks_clear mbs b o) = length mbs.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b]; cbn; auto.
+  Qed.
+
+  Lemma memblock_sum_one_l o v r result :
+    memblock_sum (memblock_one o v) r = Some result ->
+    memblock_with_one result o v = true.
+  Proof.
+    revert r result.
+    induction o as [|o' IHo].
+    intros [|[w|] r] result EQ; cbn in *; try discriminate.
+    inversion EQ; subst; cbn.
+    destruct (Memval.eq_dec v v) as [Heq | Hneq].
+    reflexivity.
+    exfalso; apply Hneq; reflexivity.
+    destruct r; cbn in EQ; inversion EQ; subst; cbn.
+    destruct (Memval.eq_dec v v) as [Heq | Hneq].
+    reflexivity.
+    exfalso; apply Hneq; reflexivity.
+    destruct (Memval.eq_dec v v) as [Heq | Hneq].
+    reflexivity.
+    exfalso; apply Hneq; reflexivity.
+    intros [|[w|] r] result EQ; cbn in *; try discriminate.
+    inversion EQ; subst; cbn.
+    eapply IHo; apply memblock_sum_id_r.
+    destruct (memblock_sum (memblock_one o' v) r) eqn:E; [ | discriminate ].
+    inversion EQ; subst; cbn.
+    eapply IHo; exact E.
+    destruct (memblock_sum (memblock_one o' v) r) eqn:E; [ | discriminate ].
+    inversion EQ; subst; cbn.
+    eapply IHo; exact E.
+  Qed.
+
+
+  Lemma memblocks_sum_one_l b o v rest result :
+    memblocks_sum (memblocks_one b o v) rest = Some result ->
+    memblocks_with_one result b o v = true.
+  Proof.
+    revert rest result.
+    induction b as [|b IHb]; intros rest result EQ; cbn in *.
+    - destruct rest as [|mb rest]; cbn in *.
+      + inversion EQ; subst; cbn.
+        eapply memblock_sum_one_l.
+        apply memblock_sum_id_r.
+      + destruct (memblock_sum (memblock_one o v) mb) eqn:Em; [ | discriminate ].
+        destruct (memblocks_sum [] rest) eqn:Er; [ | discriminate ].
+        inversion EQ; subst; cbn.
+        eapply memblock_sum_one_l.
+        exact Em.
+    - destruct rest as [|mb rest]; cbn in *.
+      + inversion EQ; subst; cbn.
+        eapply IHb. 
+        apply memblocks_sum_id_r.
+      + destruct mb; cbn in EQ.
+        * destruct (memblocks_sum (memblocks_one b o v) rest) eqn:Er; [ | discriminate ].
+          inversion EQ; subst; cbn.
+          eapply IHb; exact Er.
+        * destruct (memblocks_sum (memblocks_one b o v) rest) eqn:Er; [ | discriminate ].
+          inversion EQ; subst; cbn.
+          eapply IHb; exact Er.
+  Qed.
+
+  Lemma memblock_clear_sum mb o v :
+    memblock_with_one mb o v = true ->
+    memblock_sum (memblock_one o v) (memblock_clear mb o) = Some mb.
+  Proof.
+    revert o.
+    induction mb as [|[w|] mb]; intros [|o] EQ; cbn in *; try discriminate.
+    - destruct (Memval.eq_dec v w); [ subst | discriminate ].
+      destruct mb; reflexivity.
+    - specialize (IHmb o EQ).
+      rewrite IHmb.
+      reflexivity.      
+    - specialize (IHmb o EQ).
+      rewrite IHmb.
+      reflexivity.
+  Qed.
+
+  Lemma memblocks_clear_sum mbs b o v :
+    memblocks_with_one mbs b o v = true ->
+    memblocks_sum (memblocks_one b o v) (memblocks_clear mbs b o) = Some mbs.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b] EQ; cbn in *; try discriminate.
+    - rewrite memblock_clear_sum; auto; rewrite memblocks_sum_id_r; reflexivity.
+    - destruct (memblocks_sum (memblocks_one b o v) (memblocks_clear mbs b o)) eqn:E.
+      + specialize (IHmbs b EQ); rewrite IHmbs in E; inversion E; subst.
+        destruct mb; reflexivity.
+      + specialize (IHmbs b EQ); rewrite IHmbs in E; discriminate.
+  Qed.
+
+  Lemma memblock_contains_iff mb o :
+    memblock_contains mb o = true <-> exists v, memblock_with_one mb o v = true.
+  Proof.
+    revert o.
+    induction mb as [|[w|] mb]; intros [|o]; cbn; split; try discriminate.
+    - intros (v & Hv); discriminate.
+    - intros (v & Hv); discriminate.
+    - intros _; exists w; now rewrite Memval.eq_dec_refl.
+    - intros (v & Hv). destruct (Memval.eq_dec v w); auto; discriminate.
+    - intros H. apply IHmb. exact H.
+    - intros H. apply IHmb. exact H.
+    - intros (v & Hv); discriminate.
+    - specialize (IHmb o).
+      destruct IHmb as [H_fwd H_bwd].
+      intros H.
+      apply H_fwd.
+      exact H.
+      -specialize (IHmb o).
+      destruct IHmb as [H_fwd H_bwd].
+      intros H.
+      apply H_bwd.
+      exact H.
+  Qed.
+
+  Lemma memblocks_contains_iff mbs b o :
+    memblocks_contains mbs b o = true <-> exists v, memblocks_with_one mbs b o v = true.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b]; cbn; split; try (intros (v & Hv); discriminate).
+    - intros H; discriminate H.
+    - intros H; discriminate H.
+    - intros H. apply memblock_contains_iff in H.
+      destruct H as [v Hv]. exists v. exact Hv.
+    - intros (v & Hv). apply memblock_contains_iff.
+      exists v. exact Hv.
+    - specialize (IHmbs b). destruct IHmbs as [H_fwd H_bwd].
+      intros H. apply H_fwd. exact H.
+    - specialize (IHmbs b). destruct IHmbs as [H_fwd H_bwd].
+      intros H. apply H_bwd. exact H.
+  Qed.
+
+  Lemma memblock_with_one_one_false o v o' w :
+    o' <> o ->
+    memblock_with_one (memblock_one o v) o' w = false.
+  Proof.
+      revert o'.
+      induction o as [|o IHo]; intros [|o'] H.
+      - contradiction.
+      - destruct o';  reflexivity.
+      - cbn. reflexivity.
+      - cbn. apply IHo.
+        lia.
+    Qed.
+
+  Lemma memblocks_with_one_one_false_blk b o v b' o' w :
+    b' <> b ->
+    memblocks_with_one (memblocks_one b o v) b' o' w = false.
+  Proof.
+    revert b'.
+    induction b as [|b IHb]; intros [|b'] H.
+    - contradiction.
+    - cbn. destruct b'; reflexivity.
+    - cbn. destruct o'; reflexivity.
+    - cbn. apply IHb.
+      lia.
+  Qed.
+
+  Lemma memblock_sum_one_neq o v mb mb' o' w :
+    memblock_sum (memblock_one o v) mb = Some mb' ->
+    o' <> o ->
+    memblock_with_one mb' o' w = memblock_with_one mb o' w.
+  Proof.
+    revert mb mb' o'.
+    induction o as [|o IHo]; intros mb mb' [|o'] H Hneq.
+    - contradiction.
+    - destruct mb as [|[vm|] mb]; cbn in *.
+      + inversion H; subst; cbn; destruct o'; reflexivity.
+      + discriminate.
+      + destruct mb; cbn in H; inversion H; subst; cbn.
+        * reflexivity.
+        * reflexivity.
+    - destruct mb as [|[vm|] mb]; cbn in *; inversion H; subst; cbn.
+      reflexivity.
+      destruct (memblock_sum (memblock_one o v) mb) eqn:E; try discriminate.
+      inversion H; subst; cbn. reflexivity.
+      destruct (memblock_sum (memblock_one o v) mb) eqn:E; try discriminate.
+      inversion H; subst; cbn. reflexivity.
+    - destruct mb as [|[vm|] mb]; cbn in H.
+      + inversion H; subst; cbn.
+      apply memblock_with_one_one_false.
+        lia.
+      + destruct (memblock_sum (memblock_one o v) mb) eqn:E; try discriminate.
+        inversion H; subst; cbn.
+        apply IHo; [ exact E | lia ].
+      + destruct (memblock_sum (memblock_one o v) mb) eqn:E; try discriminate.
+        inversion H; subst; cbn.
+        apply IHo; [ exact E | lia ].
+  Qed.
+
+  Lemma memblocks_sum_one_neq b o v mbs mbs' b' o' w :
+    memblocks_sum (memblocks_one b o v) mbs = Some mbs' ->
+    (b' <> b \/ o' <> o) ->
+    memblocks_with_one mbs' b' o' w = memblocks_with_one mbs b' o' w.
+  Proof.
+    revert mbs mbs' b' o' w.
+    induction b as [|b IHb]; intros mbs mbs' b' o' w H Hneq.
+    - cbn [memblocks_one] in H.
+      destruct mbs as [|mb mbs_rest]; cbn in H.
+      + inversion H; subst; cbn.
+      destruct b' as [|b'].
+        * destruct Hneq as [Hneq | Hneq].
+          -- contradiction.
+          -- cbn. apply memblock_with_one_one_false. exact Hneq.
+        * cbn. destruct b'; reflexivity.
+      + destruct (memblock_sum (memblock_one o v) mb) eqn:Em; try discriminate.
+    inversion H; subst; cbn.
+    destruct b' as [|b'].
+    * destruct Hneq as [Hneq | Hneq].
+      -- contradiction.
+      -- cbn. apply memblock_sum_one_neq with (o := o) (v := v) (mb := mb) (mb' := m); [ exact Em | exact Hneq ].
+      * reflexivity.
+    - destruct mbs as [|mb mbs_rest]; cbn in H.
+  + inversion H; subst; cbn.
+    destruct b' as [|b'].
+    * destruct o'; reflexivity.
+    * assert (Hempty : memblocks_with_one [] b' o' w = false) by (destruct b'; reflexivity).
+      rewrite <- Hempty.
+      apply IHb with (mbs' := memblocks_one b o v).
+      -- apply memblocks_sum_id_r.
+      -- destruct Hneq as [Hneq | Hneq]; [ left; lia | right; exact Hneq ].
+    + destruct (memblocks_sum (memblocks_one b o v) mbs_rest) eqn:E; try discriminate.
+    destruct mb; cbn in H; inversion H; subst; cbn.
+    * destruct b' as [|b0].
+      -- destruct o'; reflexivity.
+      -- cbn. apply IHb with (mbs' := l); [ exact E | ].
+         destruct Hneq as [Hneq | Hneq]; [ left; lia | right; exact Hneq ].
+    * destruct b' as [|b0].
+      -- destruct o' as [|o']; [ destruct o0; reflexivity | reflexivity ].
+      -- cbn. apply IHb with (mbs' := l); [ exact E | ].
+         destruct Hneq as [Hneq | Hneq]; [ left; lia | right; exact Hneq ].
+         * destruct mb; cbn in H; discriminate H.
+  Qed.
+
+  Lemma memblock_with_one_iff_nth mb o v :
+    memblock_with_one mb o v = true <-> List.nth o mb None = Some v.
+  Proof.
+    revert o.
+    induction mb as [|[w|] mb]; intros [|o]; cbn; split; try discriminate.
+    - intros H.
+      destruct (Memval.eq_dec v w) as [Heq|Hneq]; [ subst; reflexivity | discriminate ].
+    - intros H. inversion H; subst.
+      destruct (Memval.eq_dec v v) as [|Hneq]; [ reflexivity | exfalso; apply Hneq; reflexivity ].
+    - apply IHmb.
+    - apply IHmb.
+    - apply IHmb.
+    - apply IHmb.
+  Qed.
+
+  Lemma memblocks_with_one_iff_lookup mbs b o v :
+    memblocks_with_one mbs b o v = true <-> memblocks_lookup mbs b o = Some v.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b]; cbn; split; try discriminate.
+    - apply memblock_with_one_iff_nth.
+    - apply memblock_with_one_iff_nth.
+    - apply IHmbs.
+    - apply IHmbs.
+  Qed.
+
+  Lemma memblock_mutate_one_self o v' v :
+    memblock_mutate (memblock_one o v') o v = Some (memblock_one o v).
+  Proof.
+    induction o as [|o]; cbn; [ reflexivity | rewrite IHo; reflexivity ].
+  Qed.
+
+  Lemma memblock_mutate_some_iff mb o v :
+    (exists v0, memblock_with_one mb o v0 = true) <-> exists mb', memblock_mutate mb o v = Some mb'.
+    Proof.
+      revert o.
+      induction mb as [|[w|] mb]; intros [|o]; cbn; split;
+        try (intros (? & H); discriminate);
+        try (intros (? & H); discriminate).
+      - intros _; exists (Some v :: mb); reflexivity.
+      - intros _; exists w;
+          destruct (Memval.eq_dec w w) as [|Hneq]; [ reflexivity | exfalso; apply Hneq; reflexivity ].
+      - intros (mb'0 & Hmut).
+      destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+      inversion Hmut; subst.
+      + exists (Some w :: m). reflexivity.
+      + destruct (IHmb o) as [Hforward _].
+        assert (Hexist : exists v0 : memval, memblock_with_one mb o v0 = true) by (exists mb'0; exact Hmut).
+        apply Hforward in Hexist as [mb_tail Hmut_eq].
+        rewrite Hmut_eq in E.
+        discriminate E.
+      - intros (mb' & Hmut).
+      destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+      inversion Hmut; subst.
+      destruct (IHmb o) as [_ Hbackward].
+      assert (Hexist : exists mb' : memblock, memblock_mutate mb o v = Some mb') by (exists m; exact E).
+      apply Hbackward in Hexist as (v0 & Hv).
+      exists v0. exact Hv.
+      - intros (v0 & Hv).
+      destruct (IHmb o) as [Hforward _].
+      assert (Hexist : exists v1 : memval, memblock_with_one mb o v1 = true) by (exists v0; exact Hv).
+      apply Hforward in Hexist as [mb_tail Hmut].
+      rewrite Hmut.
+      exists (None :: mb_tail).
+      reflexivity.
+    - intros (mb' & Hmut).
+      destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+      inversion Hmut; subst.
+      destruct (IHmb o) as [_ Hbackward].
+      assert (Hexist : exists mb' : memblock, memblock_mutate mb o v = Some mb') by (exists m; exact E).
+      apply Hbackward in Hexist as (v0 & Hv).
+      exists v0. exact Hv.
+  Qed.
+
+  Lemma memblocks_mutate_some_iff mbs b o v :
+    (exists v0, memblocks_with_one mbs b o v0 = true) <-> exists mbs', memblocks_mutate mbs b o v = Some mbs'.
+  Proof.
+    revert b.
+    induction mbs as [|mb mbs]; intros [|b]; cbn; split;
+      try (intros (? & H); discriminate);
+      try (intros (? & H); discriminate).
+    - intros (v0 & H).
+      destruct (proj1 (memblock_mutate_some_iff mb o v) (ex_intro _ v0 H)) as (mb' & Hmb').
+      rewrite Hmb'; eauto.
+    - intros (mbs' & H).
+      destruct (memblock_mutate mb o v) eqn:E; [ | discriminate ].
+      exact (proj2 (memblock_mutate_some_iff mb o v) (ex_intro _ m E)).
+    - intros (v0 & H).
+      destruct (proj1 (IHmbs b) (ex_intro _ v0 H)) as (mbs' & Hmbs').
+      rewrite Hmbs'; eauto.
+    - intros (mbs' & H).
+      destruct (memblocks_mutate mbs b o v) eqn:E; [ | discriminate ].
+      exact (proj2 (IHmbs b) (ex_intro _ l E)).
+  Qed.
+
+  Lemma memblock_mutate_one_sum o v' mb m v mb_new :
+    memblock_sum (memblock_one o v') mb = Some m ->
+    memblock_mutate m o v = Some mb_new ->
+    memblock_sum (memblock_one o v) mb = Some mb_new.
+  Proof.
+    revert mb m mb_new.
+    induction o as [|o IHo]; intros mb m mb_new H Hmut.
+    - destruct mb as [|[w|] mb].
+      + rewrite memblock_sum_id_r in H; inversion H; subst.
+        cbn [memblock_mutate] in Hmut; inversion Hmut; subst.
+        rewrite memblock_sum_id_r; reflexivity.
+      + cbn [memblock_sum] in H; discriminate.
+      + cbn [memblock_sum] in H.
+        cbn in H. inversion H; subst; clear H.
+        cbn in Hmut. inversion Hmut; subst; clear Hmut.
+        rewrite H0.
+        destruct mb as [|m0 mb_rest]; cbn in *; inversion H1; subst.
+        * cbn in H0. inversion H0; subst. reflexivity.
+        * cbn in H0. inversion H0; subst. reflexivity.
+    - destruct mb as [| vo mb_tail].
+      + cbn in H. inversion H; subst.
+        cbn in Hmut.
+        rewrite memblock_mutate_one_self in Hmut.
+        inversion Hmut; subst.
+        cbn. reflexivity.
+      + destruct vo as [w|]; cbn in H.
+        * destruct (memblock_sum (memblock_one o v') mb_tail) eqn:E; try discriminate.
+          inversion H; subst; clear H.
+          cbn in Hmut. destruct (memblock_mutate m0 o v) eqn:Emut; try discriminate.
+          inversion Hmut; subst; clear Hmut.
+          cbn. rewrite (IHo mb_tail m0 m E Emut). reflexivity.
+        * destruct (memblock_sum (memblock_one o v') mb_tail) eqn:E; try discriminate.
+          inversion H; subst; clear H.
+          cbn in Hmut. destruct (memblock_mutate m0 o v) eqn:Emut; try discriminate.
+          inversion Hmut; subst; clear Hmut.
+          cbn. rewrite (IHo mb_tail m0 m E Emut). reflexivity.
+  Qed.
+
+  Lemma memblocks_sum_mutate b o v' rmbs mbs_old v mbs_new :
+    memblocks_sum (memblocks_one b o v') rmbs = Some mbs_old ->
+    memblocks_mutate mbs_old b o v = Some mbs_new ->
+    memblocks_sum (memblocks_one b o v) rmbs = Some mbs_new.
+  Proof.
+    revert rmbs mbs_old mbs_new.
+    induction b as [|b IHb]; intros rmbs mbs_old mbs_new H Hmut.
+    - destruct rmbs as [|rb rmbs_rest].
+      + rewrite memblocks_sum_id_r in H; inversion H; subst; cbn in Hmut.
+        rewrite memblock_mutate_one_self in Hmut; inversion Hmut; subst.
+        rewrite memblocks_sum_id_r; reflexivity.
+      + cbn in H.
+        destruct (memblock_sum (memblock_one o v') rb) as [m_inner|] eqn:Em; [ | discriminate ].
+        inversion H; subst; cbn in Hmut.
+        destruct (memblock_mutate m_inner o v) as [mb_inner|] eqn:E2; [ | discriminate ].
+        inversion Hmut; subst; cbn.
+        rewrite (memblock_mutate_one_sum o v' rb m_inner v mb_inner Em E2); reflexivity.
+    - destruct rmbs as [|rb rmbs_rest].
+      + rewrite memblocks_sum_id_r in H; inversion H; subst; cbn in Hmut.
+        destruct (memblocks_mutate (memblocks_one b o v') b o v) as [mbs_inner|] eqn:E2; [ | discriminate ].
+        inversion Hmut; subst.
+        specialize (IHb [] (memblocks_one b o v') mbs_inner (memblocks_sum_id_r _) E2) as IH.
+        rewrite memblocks_sum_id_r in IH; inversion IH; subst.
+        cbn [memblocks_one memblocks_sum]; reflexivity.
+      + cbn [memblocks_one memblocks_sum] in H.
+        rewrite memblock_sum_id_l in H; cbn in H.
+        destruct (memblocks_sum (memblocks_one b o v') rmbs_rest) as [mbs_inner|] eqn:Er; [ | discriminate ].
+        inversion H; subst; cbn in Hmut.
+        destruct (memblocks_mutate mbs_inner b o v) as [mbs_inner_new|] eqn:E2; [ | discriminate ].
+        inversion Hmut; subst.
+        cbn [memblocks_one memblocks_sum].
+        rewrite memblock_sum_id_l; cbn.
+        rewrite (IHb rmbs_rest mbs_inner mbs_inner_new Er E2); reflexivity.
+  Qed.
+
+  Lemma memblocks_mutate_length mbs b o v mbs' :
+    memblocks_mutate mbs b o v = Some mbs' -> length mbs' = length mbs.
+  Proof.
+    revert b mbs'.
+    induction mbs as [|mb mbs IHmbs]; intros [|b] mbs' H; cbn in *; try discriminate.
+    - destruct (memblock_mutate mb o v) eqn:E; [ | discriminate ].
+      inversion H; subst; reflexivity.
+    - destruct (memblocks_mutate mbs b o v) eqn:E; [ | discriminate ].
+      inversion H; subst; cbn.
+      f_equal.
+      apply (IHmbs b l E).
+  Qed.
+
+  Lemma alloc_shift_fw_succeeds mbs alloc sz v lh' p o :
+    list_heap_alloc (mkListHeap mbs alloc) sz v = Some (lh', p) ->
+    (o < sz)%N ->
+    exists p', Pointer.shift_fw p o = Some p'.
+  Proof.
+    intros H_alc Ho.
+    unfold list_heap_alloc in H_alc.
+    inversion H_alc.
+    destruct alloc; [ | discriminate ].
+    inversion H_alc; subst lh' p; clear H_alc.
+    cbn [Pointer.shift_fw Addr.shift_fw].
+    unfold Provenance.within, Provenance.wf.
+    rewrite !Nat.eqb_refl.
+    rewrite !N.add_0_l.
+    destruct (N.leb_spec0 0 0); [| lia ].
+    destruct (N.leb_spec0 sz sz); [| lia ].
+    destruct (N.leb_spec0 0 sz); [| lia ].
+    destruct (N.leb_spec0 0 o); [| lia ].
+    destruct (N.leb_spec0 o sz); [| lia ].
+    cbn.
+    eexists.
+    reflexivity.
+  Qed.
+
+  Lemma alloc_write_allows mbs alloc sz v lh' p o :
+    list_heap_alloc (mkListHeap mbs alloc) sz v = Some (lh', p) ->
+    (o < sz)%N ->
+    Pointer.allows (match Pointer.shift_fw p o with Some p' => p' | None => Pointer.NULL end) Operation.Write = true.
+  Proof.
+    intros H_alc Ho.
+    specialize (alloc_shift_fw_succeeds mbs alloc sz v lh' p o H_alc Ho) as [p' Hp'].
+    rewrite Hp'.
+    unfold list_heap_alloc in H_alc.
+    destruct alloc; [ | discriminate ].
+    inversion H_alc; subst lh' p; clear H_alc.
+    cbn [Pointer.shift_fw Addr.shift_fw] in Hp'.
+    rewrite !N.add_0_l in Hp'.
+    unfold Provenance.within, Provenance.wf in Hp'.
+    rewrite !Nat.eqb_refl in Hp'.
+    destruct (N.leb_spec0 0 0) in Hp'; [| lia ].
+    destruct (N.leb_spec0 sz sz) in Hp'; [| lia ].
+    destruct (N.leb_spec0 0 sz) in Hp'; [| lia ].
+    destruct (N.leb_spec0 0 o) in Hp'; [| lia ].
+    destruct (N.leb_spec0 o sz) in Hp'; [| lia ].
+    cbn in Hp'.
+    inversion Hp'; subst p'; clear Hp'.
+    cbn [Pointer.allows Provenance.allows].
+    unfold Provenance.within, Provenance.wf.
+    rewrite !Nat.eqb_refl.
+    destruct (N.leb_spec0 0 0); [| lia ].
+    destruct (N.leb_spec0 sz sz); [| lia ].
+    destruct (N.leb_spec0 0 o); [| lia ].
+    destruct (N.leb_spec0 o sz); [| lia ].
+    destruct (N.ltb_spec0 o sz); [| lia ].
+    cbn.
+    reflexivity.
+  Qed.
+
+  Lemma memblocks_mutate_alloc_succeeds mbs sz v o v_new :
+    (N.to_nat o < N.to_nat sz)%nat ->
+    exists mbs', memblocks_mutate (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) (length mbs) (N.to_nat o) v_new = Some mbs'.
+  Proof.
+    intros Ho.
+    induction mbs as [|mb mbs' IHmbs]; cbn.
+    - generalize dependent (N.to_nat o).
+      induction (N.to_nat sz) as [|k IHk]; intros idx Hidx.
+      + lia.
+      + destruct idx as [|idx]; cbn.
+      * eexists; reflexivity.
+        * assert (Hidx_tail: idx < k) by lia.
+          specialize (IHk idx Hidx_tail) as [mbs_tail Hmb].
+          destruct (memblock_mutate (repeat (Some v) k) idx v_new) eqn:Emut; try discriminate.
+          inversion Hmb; subst mbs_tail; clear Hmb.
+          eexists; reflexivity.
+    - destruct IHmbs as [mbs_tail IH].
+      rewrite IH.
+      eexists; reflexivity.
+  Qed.
+
+  Lemma memblock_with_one_repeat k o v :
+    o < k ->
+    memblock_with_one (List.repeat (Some v) k) o v = true.
+  Proof.
+    generalize dependent o.
+    induction k as [|k IHk]; intros o Ho.
+    - lia.
+    - destruct o as [|o]; cbn.
+      + now rewrite Memval.eq_dec_refl.
+      + apply IHk.
+        lia.
+  Qed.
+
+  Lemma memblocks_with_one_append_block mbs sz o v :
+    (N.to_nat o < N.to_nat sz)%nat ->
+    memblocks_with_one (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) (length mbs) (N.to_nat o) v = true.
+  Proof.
+    intros Ho.
+    induction mbs as [|mb mbs IH]; cbn.
+    - apply memblock_with_one_repeat; exact Ho.
+    - exact IH.
+  Qed.
+
+  Lemma memblock_contains_after_mutate mb o v mb' o' :
+    memblock_mutate mb o v = Some mb' ->
+    memblock_contains mb o' = true ->
+    memblock_contains mb' o' = true.
+    Proof.
+    revert o o' mb'.
+    induction mb as [|[w|] mb IH]; intros [|o] [|o'] mb' Hmut Hcont;
+      cbn in *; try discriminate.
+    - inversion Hmut; subst; reflexivity.
+    - inversion Hmut; subst; exact Hcont.
+    - destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+      inversion Hmut; subst; reflexivity.
+    - destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+      inversion Hmut; subst.
+      cbn.
+      eapply IH; [ exact E | exact Hcont ].
+    - destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+    inversion Hmut; subst.
+    cbn.
+    eapply IH; [ exact E | exact Hcont ].
+  Qed.
+
+  Lemma memblocks_contains_after_mutate mbs b o v mbs' b' o' :
+    memblocks_mutate mbs b o v = Some mbs' ->
+    memblocks_contains mbs b' o' = true ->
+    memblocks_contains mbs' b' o' = true.
+    Proof.
+    revert b b' mbs'.
+    induction mbs as [|mb mbs IH]; intros [|b] [|b'] mbs' Hmut Hcont;
+      cbn in *; try discriminate.
+    - destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+      inversion Hmut; subst.
+      eapply memblock_contains_after_mutate; [ exact E | exact Hcont ].
+    - destruct (memblock_mutate mb o v) eqn:E; try discriminate.
+      inversion Hmut; subst; exact Hcont.
+    - destruct (memblocks_mutate mbs b o v) eqn:E; try discriminate.
+      inversion Hmut; subst; exact Hcont.
+    - destruct (memblocks_mutate mbs b o v) eqn:E; try discriminate.
+      inversion Hmut; subst.
+      cbn.
+      eapply IH; [ exact E | exact Hcont ].
+  Qed.
+
+  Lemma memblocks_contains_alloc_append mbs sz o v :
+    (N.to_nat o < N.to_nat sz)%nat ->
+    memblocks_contains (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) (length mbs) (N.to_nat o) = true.
+  Proof.
+    intros Ho.
+    apply (proj2 (memblocks_contains_iff _ _ _)).
+    exists v.
+    apply memblocks_with_one_append_block; exact Ho.
+  Qed.
+
+  Lemma alloc_shift_wvalid mbs alloc sz v lh' p o p' :
+    list_heap_alloc (mkListHeap mbs alloc) sz v = Some (lh', p) ->
+    (o < sz)%N ->
+    Pointer.shift_fw p o = Some p' ->
+    Heap.Facts.WValid lh' p'.
+  Proof.
+    intros H_alc Ho Hshift.
+    unfold list_heap_alloc in H_alc.
+    destruct alloc; [|discriminate].
+    inversion H_alc; subst lh' p; clear H_alc.
+    cbn [Pointer.shift_fw Addr.shift_fw] in Hshift.
+    unfold Provenance.within, Provenance.wf in Hshift.
+    rewrite !Nat.eqb_refl, !N.add_0_l in Hshift.
+    destruct (N.leb_spec0 0 0) in Hshift; [|lia].
+    destruct (N.leb_spec0 sz sz) in Hshift; [|lia].
+    destruct (N.leb_spec0 0 sz) in Hshift; [|lia].
+    destruct (N.leb_spec0 0 o) in Hshift; [|lia].
+    destruct (N.leb_spec0 o sz) in Hshift; [|lia].
+    cbn in Hshift.
+    inversion Hshift; subst p'; clear Hshift.
+    left.
+    unfold Heap.Facts.Valid.
+    exists (Addr.mkAddr (length mbs) o), v.
+    split.
+    - constructor.
+    - unfold Substate.
+      exists (mkListHeap (memblocks_clear (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) (length mbs) (N.to_nat o)) true).
+      unfold list_heap_sum; cbn.
+      assert (H_sum : memblocks_sum (memblocks_one (length mbs) (N.to_nat o) v)
+                        (memblocks_clear (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) (length mbs) (N.to_nat o)) =
+                      Some (mbs ++ [List.repeat (Some v) (N.to_nat sz)])).
+      { apply memblocks_clear_sum.
+        - induction mbs as [|mb mbs' IH]; cbn.
+          + apply memblock_with_one_repeat.
+            destruct o, sz; cbn; try lia; try discriminate.
+          + exact IH. }
+      cbn.
+      unfold "$+"; unfold list_heap_sum; cbn.
+      rewrite memblocks_clear_length, memblocks_one_length.
+      rewrite length_app; cbn; try lia.
+      rewrite H_sum.
+      cbn.
+      replace (length mbs + 1) with (S (length mbs)) by lia.
+      cbn.
+      destruct (S (length mbs) <? S (length mbs)) eqn:H_lt.
+      apply Nat.ltb_lt in H_lt. lia.
+      reflexivity.
+  Qed.
+
+  Lemma alloc_shift_wvalid_after_mut mbs sz v lh' p o p' lh'' ptr_m v_m :
+    list_heap_alloc (mkListHeap mbs true) sz v = Some (lh', p) ->
+    (o < sz)%N ->
+    Pointer.shift_fw p o = Some p' ->
+    list_heap_mutate lh' ptr_m v_m = Some lh'' ->
+    Heap.Facts.WValid lh'' p'.
+  Proof.
+    intros H_alc Ho Hshift Hmut.
+    unfold list_heap_alloc in H_alc.
+    inversion H_alc; subst lh' p; clear H_alc.
+    cbn [Pointer.shift_fw Addr.shift_fw] in Hshift.
+    unfold Provenance.within, Provenance.wf in Hshift.
+    rewrite !Nat.eqb_refl, !N.add_0_l in Hshift.
+    destruct (N.leb_spec0 0 0) in Hshift; [|lia].
+    destruct (N.leb_spec0 sz sz) in Hshift; [|lia].
+    destruct (N.leb_spec0 0 sz) in Hshift; [|lia].
+    destruct (N.leb_spec0 0 o) in Hshift; [|lia].
+    destruct (N.leb_spec0 o sz) in Hshift; [|lia].
+    cbn in Hshift. inversion Hshift; subst p'; clear Hshift.
+    unfold list_heap_mutate in Hmut.
+    destruct ptr_m as [[[b_m o_m] prov_m]|]; [|discriminate].
+    destruct (Pointer.allows _ Operation.Write); [|discriminate].
+    destruct (memblocks_mutate (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) b_m (N.to_nat o_m) v_m)
+      as [mbs''|] eqn:Emut; [|discriminate].
+    inversion Hmut; subst lh''; clear Hmut.
+    assert (Hcont : memblocks_contains mbs'' (length mbs) (N.to_nat o) = true).
+    { apply (memblocks_contains_after_mutate _ b_m (N.to_nat o_m) v_m _ _ (N.to_nat o) Emut).
+      apply memblocks_contains_alloc_append.
+      destruct o, sz; cbn; try lia; try discriminate. }
+    left.
+    unfold Heap.Facts.Valid.
+    apply memblocks_contains_iff in Hcont. destruct Hcont as [mv Hw1].
+    exists {| Addr.block := length mbs; Addr.offset := o |}, mv.
+    split.
+    - constructor.
+    - unfold Substate. unfold "$<=". unfold "$+"; unfold list_heap_sum; cbn.
+    exists {| list_heap := memblocks_clear mbs'' (length mbs) (N.to_nat o); alloc := true |}.
+    cbn.
+    rewrite memblocks_one_length.
+    replace (S (length mbs) <? 1) with false by reflexivity.
+    rewrite memblocks_clear_length.
+    assert (Hlen : length mbs'' = S (length mbs)).
+    { apply memblocks_mutate_length in Emut. rewrite Emut. rewrite length_app; cbn; lia. }
+    rewrite Hlen.
+    destruct (S (length mbs) <? S (length mbs)) eqn:H_lt; [apply Nat.ltb_lt in H_lt; lia |].
+    assert (H_sum : memblocks_sum (memblocks_one (length mbs) (N.to_nat o) mv)
+                      (memblocks_clear mbs'' (length mbs) (N.to_nat o)) = Some mbs'').
+    cbn in Hw1.
+    apply memblocks_clear_sum.
+    exact Hw1.
+    rewrite H_sum.
+    reflexivity.
+  Qed.
+
+  Lemma alloc_mutate_succeeds mbs alloc sz v lh' p o p' val :
+    list_heap_alloc (mkListHeap mbs alloc) sz v = Some (lh', p) ->
+    (o < sz)%N ->
+    Pointer.shift_fw p o = Some p' ->
+    exists lh'', list_heap_mutate lh' p' val = Some lh''.
+  Proof.
+    intros H_alc Ho Hshift.
+    unfold list_heap_alloc in H_alc.
+    destruct alloc; [|discriminate].
+    inversion H_alc; subst lh' p; clear H_alc.
+    cbn [Pointer.shift_fw Addr.shift_fw] in Hshift.
+    unfold Provenance.within, Provenance.wf in Hshift.
+    rewrite !Nat.eqb_refl, !N.add_0_l in Hshift.
+    destruct (N.leb_spec0 0 0) in Hshift; [|lia].
+    destruct (N.leb_spec0 sz sz) in Hshift; [|lia].
+    destruct (N.leb_spec0 0 sz) in Hshift; [|lia].
+    destruct (N.leb_spec0 0 o) in Hshift; [|lia].
+    destruct (N.leb_spec0 o sz) in Hshift; [|lia].
+    cbn in Hshift. inversion Hshift; subst p'; clear Hshift.
+    unfold list_heap_mutate.
+    cbn [Pointer.allows Provenance.allows Provenance.within Provenance.wf].
+    rewrite !Nat.eqb_refl.
+    destruct (N.leb_spec0 0 0); [|lia].
+    destruct (N.leb_spec0 sz sz); [|lia].
+    destruct (N.leb_spec0 0 o); [|lia].
+    destruct (N.leb_spec0 o sz); [|lia].
+    destruct (N.ltb_spec0 o sz); [|lia].
+    cbn.
+    destruct (memblocks_mutate_alloc_succeeds mbs sz v o val) as [mbs' Emut].
+    { destruct o, sz; cbn; try lia; try discriminate. }
+    exists {| list_heap := mbs'; alloc := true |}.
+    pattern (memblocks_mutate (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) (length mbs) (N.to_nat o) val).
+    rewrite Emut.
+    reflexivity.
+  Qed.
+
+  Lemma alloc_mutate_mutate_succeeds mbs alloc sz v lh' p o1 p1 o2 p2 lh1 val1 val2 :
+    list_heap_alloc (mkListHeap mbs alloc) sz v = Some (lh', p) ->
+    (o1 < sz)%N ->
+    Pointer.shift_fw p o1 = Some p1 ->
+    list_heap_mutate lh' p1 val1 = Some lh1 ->
+    (o2 < sz)%N ->
+    Pointer.shift_fw p o2 = Some p2 ->
+    exists lh2, list_heap_mutate lh1 p2 val2 = Some lh2.
+  Proof.
+    intros H_alc Ho1 Hshift1 Hmut1 Ho2 Hshift2.
+    unfold list_heap_alloc in H_alc.
+    destruct alloc; [|discriminate].
+    inversion H_alc; subst lh' p; clear H_alc.
+    cbn [Pointer.shift_fw Addr.shift_fw] in Hshift1.
+    unfold Provenance.within, Provenance.wf in Hshift1.
+    rewrite !Nat.eqb_refl, !N.add_0_l in Hshift1.
+    destruct (N.leb_spec0 0 0) in Hshift1; [|lia].
+    destruct (N.leb_spec0 sz sz) in Hshift1; [|lia].
+    destruct (N.leb_spec0 0 sz) in Hshift1; [|lia].
+    destruct (N.leb_spec0 0 o1) in Hshift1; [|lia].
+    destruct (N.leb_spec0 o1 sz) in Hshift1; [|lia].
+    cbn in Hshift1. inversion Hshift1; subst p1; clear Hshift1.
+    cbn [Pointer.shift_fw Addr.shift_fw] in Hshift2.
+    unfold Provenance.within, Provenance.wf in Hshift2.
+    rewrite !Nat.eqb_refl, !N.add_0_l in Hshift2.
+    destruct (N.leb_spec0 0 0) in Hshift2; [|lia].
+    destruct (N.leb_spec0 sz sz) in Hshift2; [|lia].
+    destruct (N.leb_spec0 0 sz) in Hshift2; [|lia].
+    destruct (N.leb_spec0 0 o2) in Hshift2; [|lia].
+    destruct (N.leb_spec0 o2 sz) in Hshift2; [|lia].
+    cbn in Hshift2. inversion Hshift2; subst p2; clear Hshift2.
+    unfold list_heap_mutate in Hmut1.
+    cbn [Pointer.allows Provenance.allows Provenance.within Provenance.wf] in Hmut1.
+    rewrite !Nat.eqb_refl in Hmut1.
+    destruct (N.leb_spec0 0 0) in Hmut1; [|lia].
+    destruct (N.leb_spec0 sz sz) in Hmut1; [|lia].
+    destruct (N.leb_spec0 0 o1) in Hmut1; [|lia].
+    destruct (N.leb_spec0 o1 sz) in Hmut1; [|lia].
+    destruct (N.ltb_spec0 o1 sz) in Hmut1; [|lia].
+    cbn in Hmut1.
+    destruct (memblocks_mutate (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) (length mbs) (N.to_nat o1) val1)
+      as [mbs1|] eqn:Emut1; [|discriminate].
+    inversion Hmut1; subst lh1; clear Hmut1.
+    unfold list_heap_mutate.
+    cbn [Pointer.allows Provenance.allows Provenance.within Provenance.wf].
+    rewrite !Nat.eqb_refl.
+    destruct (N.leb_spec0 0 0); [|lia].
+    destruct (N.leb_spec0 sz sz); [|lia].
+    destruct (N.leb_spec0 0 o2); [|lia].
+    destruct (N.leb_spec0 o2 sz); [|lia].
+    destruct (N.ltb_spec0 o2 sz); [|lia].
+    cbn.
+    assert (Hcont : memblocks_contains mbs1 (length mbs) (N.to_nat o2) = true).
+    { apply (memblocks_contains_after_mutate _ (length mbs) (N.to_nat o1) val1 _ _ (N.to_nat o2) Emut1).
+      apply memblocks_contains_alloc_append.
+      destruct o2, sz; cbn; try lia; try discriminate. }
+    apply memblocks_contains_iff in Hcont.
+    rewrite memblocks_mutate_some_iff in Hcont.
+    destruct Hcont as [mbs2 Emut2].
+    exists {| list_heap := mbs2; alloc := true |}.
+    pattern (memblocks_mutate mbs1 (length mbs) (N.to_nat o2) val2).
+    rewrite Emut2.
+    reflexivity.
+  Qed.
+
+  Lemma alloc_heap_neq_orig mbs sz v lh' p p1 p2 lh1 lh2 v1 v2 :
+    list_heap_alloc (mkListHeap mbs true) sz v = Some (lh', p) ->
+    list_heap_mutate lh' p1 v1 = Some lh1 ->
+    list_heap_mutate lh1 p2 v2 = Some lh2 ->
+    lh2 <> mkListHeap mbs true.
+  Proof.
+    intros H_alc Hmut1 Hmut2.
+    unfold list_heap_alloc in H_alc.
+    inversion H_alc; subst lh' p; clear H_alc.
+    unfold list_heap_mutate in Hmut1.
+    destruct p1 as [[[b1 o1] prov1]|]; [|discriminate].
+    destruct (Pointer.allows _ Operation.Write); [|discriminate].
+    destruct (memblocks_mutate (mbs ++ [List.repeat (Some v) (N.to_nat sz)]) b1 (N.to_nat o1) v1)
+      as [mbs1|] eqn:Emut1; [|discriminate].
+    inversion Hmut1; subst lh1; clear Hmut1.
+    unfold list_heap_mutate in Hmut2.
+    destruct p2 as [[[b2 o2] prov2]|]; [|discriminate].
+    destruct (Pointer.allows _ Operation.Write); [|discriminate].
+    destruct (memblocks_mutate mbs1 b2 (N.to_nat o2) v2)
+      as [mbs2|] eqn:Emut2; [|discriminate].
+    inversion Hmut2; subst lh2; clear Hmut2.
+    intros contra.
+    pose proof (memblocks_mutate_length _ _ _ _ _ Emut2) as Hlen2.
+    pose proof (memblocks_mutate_length _ _ _ _ _ Emut1) as Hlen1.
+    rewrite length_app in Hlen1; cbn [length] in Hlen1.
+    assert (Hmbs_len : length mbs2 = length mbs).
+    { exact (f_equal (fun lh => length (list_heap lh)) contra). }
+    lia.
+  Qed.
+
+  Lemma list_heap_alloc_true (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) :
+      list_heap_alloc h sz v = Some (lh', p) -> alloc h = true.
+  Proof.
+    destruct h as [mbs [|]]; cbn; intros H; [reflexivity | discriminate].
+  Qed.
+
+    Lemma alloc_shift_fw_0_self mbs sz v lh' p :
+      list_heap_alloc (mkListHeap mbs true) sz v = Some (lh', p) ->
+      (0 < sz)%N ->
+      Pointer.shift_fw p 0%N = Some p.
+  Proof.
+    intros H_alc Ho.
+    unfold list_heap_alloc in H_alc.
+    inversion H_alc; subst p; clear H_alc.
+    cbn [Pointer.shift_fw Addr.shift_fw].
+    rewrite N.add_0_r.
+    unfold Provenance.within, Provenance.wf.
+    rewrite !Nat.eqb_refl.
+    destruct (N.leb_spec0 0 0); [|lia].
+    destruct (N.leb_spec0 sz sz); [|lia].
+    destruct (N.leb_spec0 0 sz); [|lia].
+    cbn. reflexivity.
+  Qed.
+
+  Lemma alloc_wvalid_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      (0 < sz)%N ->
+      Heap.Facts.WValid lh' p.
+  Proof.
+    destruct h as [mbs [|]]; intros H_alc Ho.
+    - eapply alloc_shift_wvalid with (o := 0%N) (p' := p); eauto.
+      + eapply alloc_shift_fw_0_self; eauto.
+    - cbn in H_alc; discriminate H_alc.
+  Qed.
+
+  Lemma alloc_shift_fw_succeeds_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) (o : N.t) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      (o < sz)%N ->
+      exists p', Pointer.shift_fw p o = Some p'.
+  Proof.
+    destruct h as [mbs [|]]; intros H Ho;
+      [exact (alloc_shift_fw_succeeds mbs true sz v lh' p o H Ho) | cbn in H; discriminate].
+  Qed.
+
+  Lemma alloc_shift_wvalid_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) (o : N.t) (p' : Pointer.t) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      (o < sz)%N ->
+      Pointer.shift_fw p o = Some p' ->
+      Heap.Facts.WValid lh' p'.
+  Proof.
+    destruct h as [mbs [|]]; intros H Ho Hs;
+      [exact (alloc_shift_wvalid mbs true sz v lh' p o p' H Ho Hs) | cbn in H; discriminate].
+  Qed.
+
+  Lemma alloc_mutate_succeeds_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) (o : N.t) (p' : Pointer.t) (val : memval) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      (o < sz)%N ->
+      Pointer.shift_fw p o = Some p' ->
+      exists lh'', Heap.mutate lh' p' val = Some lh''.
+  Proof.
+    destruct h as [mbs [|]]; intros H Ho Hs;
+      [exact (alloc_mutate_succeeds mbs true sz v lh' p o p' val H Ho Hs) | cbn in H; discriminate].
+  Qed.
+
+  Lemma alloc_shift_wvalid_after_mut_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) (o : N.t) (p' : Pointer.t) (lh'' : list_heap_carrier) (ptr_m : Pointer.t) (v_m : memval) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      (o < sz)%N ->
+      Pointer.shift_fw p o = Some p' ->
+      Heap.mutate lh' ptr_m v_m = Some lh'' ->
+      Heap.Facts.WValid lh'' p'.
+  Proof.
+    destruct h as [mbs [|]]; intros H Ho Hs Hm;
+      [exact (alloc_shift_wvalid_after_mut mbs sz v lh' p o p' lh'' ptr_m v_m H Ho Hs Hm) | cbn in H; discriminate].
+  Qed.
+
+  Lemma alloc_wvalid_after_mut_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) (lh'' : list_heap_carrier) (ptr_m : Pointer.t) (v_m : memval) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      (0 < sz)%N ->
+      Heap.mutate lh' ptr_m v_m = Some lh'' ->
+      Heap.Facts.WValid lh'' p.
+  Proof.
+  destruct h as [mbs [|]]; intros H_alc Ho H_mut; cbn in *.
+  - injection H_alc as H_lh' H_p.
+    subst lh' p.
+    
+    assert (H_fw0: Pointer.shift_fw (Some ({| Addr.block := length mbs; Addr.offset := 0 |},
+        {| Provenance.prov_block := length mbs; Provenance.prov_bofst := 0;
+           Provenance.prov_eofst := sz; Provenance.prov_mbofst := 0;
+           Provenance.prov_meofst := sz; Provenance.prov_perm := Permission.Free |})) 0%N = 
+        Some (Some ({| Addr.block := length mbs; Addr.offset := 0 |},
+        {| Provenance.prov_block := length mbs; Provenance.prov_bofst := 0;
+           Provenance.prov_eofst := sz; Provenance.prov_mbofst := 0;
+           Provenance.prov_meofst := sz; Provenance.prov_perm := Permission.Free |}))).
+    { cbn [Pointer.shift_fw Addr.shift_fw].
+      rewrite N.add_0_r.
+      unfold Provenance.within, Provenance.wf.
+      rewrite !Nat.eqb_refl.
+      destruct (N.leb_spec0 0 0); [| lia ].
+      destruct (N.leb_spec0 sz sz); [| lia ].
+      destruct (N.leb_spec0 0 sz); [| lia ].
+      reflexivity. }
+      
+    eapply alloc_shift_wvalid_after_mut with (o := 0%N); eauto.
+    cbn. reflexivity.
+  - discriminate H_alc.
+Qed.
+
+  Lemma alloc_mutate_mutate_succeeds_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p : Pointer.t) (o1 : N.t) (p1 : Pointer.t) (o2 : N.t) (p2 : Pointer.t) (lh1 : list_heap_carrier) (val1 val2 : memval) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      (o1 < sz)%N ->
+      Pointer.shift_fw p o1 = Some p1 ->
+      Heap.mutate lh' p1 val1 = Some lh1 ->
+      (o2 < sz)%N ->
+      Pointer.shift_fw p o2 = Some p2 ->
+      exists lh2, Heap.mutate lh1 p2 val2 = Some lh2.
+  Proof.
+    destruct h as [mbs [|]]; intros H Ho1 Hs1 Hm1 Ho2 Hs2;
+      [exact (alloc_mutate_mutate_succeeds mbs true sz v lh' p o1 p1 o2 p2 lh1 val1 val2 H Ho1 Hs1 Hm1 Ho2 Hs2) | cbn in H; discriminate].
+  Qed.
+
+  Lemma alloc_heap_neq_orig_gen (h : list_heap_carrier) (sz : N.t) (v : memval) (lh' : list_heap_carrier) (p p1 p2 : Pointer.t) (lh1 lh2 : list_heap_carrier) (v1 v2 : memval) :
+      Heap.alloc h sz v = Some (lh', p) ->
+      Heap.mutate lh' p1 v1 = Some lh1 ->
+      Heap.mutate lh1 p2 v2 = Some lh2 ->
+      lh2 <> h.
+  Proof.
+    destruct h as [mbs [|]]; intros H Hm1 Hm2;
+      [exact (alloc_heap_neq_orig mbs sz v lh' p p1 p2 lh1 lh2 v1 v2 H Hm1 Hm2) | cbn in H; discriminate].
+  Qed.
+
+  Lemma alloc_wvalid mbs sz v lh' p :
+      list_heap_alloc (mkListHeap mbs true) sz v = Some (lh', p) ->
+      (0 < sz)%N ->
+      Heap.Facts.WValid lh' p.
+  Proof.
+    intros H_alc Ho.
+    exact (alloc_shift_wvalid mbs true sz v lh' p 0%N p H_alc Ho
+             (alloc_shift_fw_0_self mbs sz v lh' p H_alc Ho)).
+  Qed.
+
+  Lemma alloc_wvalid_after_mut mbs sz v lh' p lh'' ptr_m v_m :
+      list_heap_alloc (mkListHeap mbs true) sz v = Some (lh', p) ->
+      (0 < sz)%N ->
+      list_heap_mutate lh' ptr_m v_m = Some lh'' ->
+      Heap.Facts.WValid lh'' p.
+  Proof.
+    intros H_alc Ho H_mut.
+    exact (alloc_shift_wvalid_after_mut mbs sz v lh' p 0%N p lh'' ptr_m v_m
+             H_alc Ho (alloc_shift_fw_0_self mbs sz v lh' p H_alc Ho) H_mut).
+  Qed.
+
 End ListHeap.
 
-Canonical list_heap_separation.
-Canonical list_heap_memory.
-Canonical list_heap_heap.
+

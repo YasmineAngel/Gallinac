@@ -155,6 +155,60 @@ Proof.
   rewrite Hex. cbn. exact (HQ hp_ex ptr_ex Hex).
 Qed.
 
+Lemma sep_alloc_concrete_triple {St: Store} {Hp: Heap} {MS: MemStorable} 
+  (n: N.t) (val: obj MS) (alloc_func : Hp -> N.t -> memval -> option (Hp * Pointer.t))
+  (Q: Pointer.t -> Pred (State St Hp)) :
+  (forall h n' v', Heap.alloc h n' v' = alloc_func h n' v') ->
+  {{ fun s =>
+       (exists hp' ptr', alloc_func (heap s) n (encode val) = Some (hp', ptr')) /\
+       forall hp ptr, alloc_func (heap s) n (encode val) = Some (hp, ptr) ->
+       Q ptr {| store := store s; heap := hp |} }}
+    alloc_ptr n val
+  {{ Q }}.
+Proof.
+  intros Halloc_eq s ((hp_ex & ptr_ex & Hex) & HQ).
+  unfold alloc_ptr, partial_exception_hoare. cbn.
+  assert (H_heap_alloc: Heap.alloc (heap s) n (encode val) = Some (hp_ex, ptr_ex)).
+  { rewrite Halloc_eq. exact Hex. }
+  rewrite H_heap_alloc. cbn.
+  exact (HQ hp_ex ptr_ex Hex).
+Qed.
+
+
+Section GenTriples.
+Context {St: Store} {Hp: Heap} {MS: MemStorable}.
+
+Lemma sep_alloc_gen (n: N.t) (val: obj MS) (alloc_func : Hp -> N.t -> memval -> option (Hp * Pointer.t))
+  (Q: Pointer.t -> Pred (State St Hp)) :
+  (forall h n' v', Heap.alloc h n' v' = alloc_func h n' v') ->
+  {{ fun s => (exists hp' ptr', alloc_func (heap s) n (encode val) = Some (hp', ptr')) /\
+              (forall hp ptr, alloc_func (heap s) n (encode val) = Some (hp, ptr) -> Q ptr {| store := store s; heap := hp |}) }}
+    alloc_ptr n val
+  {{ Q }}.
+Proof.
+  intros Halloc_eq s ((hp_ex & ptr_ex & Hex) & HQ).
+  unfold alloc_ptr, partial_exception_hoare. cbn.
+  assert (H_alloc: Heap.alloc (heap s) n (encode val) = Some (hp_ex, ptr_ex)) by (rewrite Halloc_eq; exact Hex).
+  rewrite H_alloc. cbn. exact (HQ hp_ex ptr_ex Hex).
+Qed.
+
+
+Lemma sep_write_gen (ptr: Pointer.t) (val: obj MS) (mutate_func : Hp -> Pointer.t -> memval -> option Hp)
+  (Q: unit -> Pred (State St Hp)) :
+  (forall h p v, Heap.mutate h p v = mutate_func h p v) ->
+  {{ fun s => (exists h', mutate_func (heap s) ptr (encode val) = Some h') /\
+              (forall h', mutate_func (heap s) ptr (encode val) = Some h' -> Q tt {| store := store s; heap := h' |}) }}
+    write_ptr ptr val
+  {{ Q }}.
+Proof.
+  intros Hmut_eq s ((h'_ex & Hex) & HQ).
+  unfold write_ptr, partial_exception_hoare. cbn.
+  assert (H_mut: Heap.mutate (heap s) ptr (encode val) = Some h'_ex) by (rewrite Hmut_eq; exact Hex).
+  rewrite H_mut. cbn. exact (HQ h'_ex Hex).
+Qed.
+
+End GenTriples.
+
 Lemma sep_if_rule
   {S A : Type} (cond : program S bool) (m1 m2 : program S A)
   (P : Pred S) (Q : bool -> Pred S) (R : A -> Pred S) :
