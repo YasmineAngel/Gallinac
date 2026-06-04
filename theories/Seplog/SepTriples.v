@@ -176,6 +176,47 @@ Lemma sep_write_var_triple
   {{ Q }}.
 Proof. apply write_var_triple. Qed.
 
+Lemma sep_with_var_triple
+  {A: Type} {St: Store} {Hp: Heap} {MS: MemStorable}
+  (e_var: obj MS) (p_cont: name -> program (State St Hp) A)
+  (P: Pred (State St Hp)) (Q: A -> Pred (State St Hp)) :
+  (forall s n st,
+    P s ->
+    Store.push (store s) (encode e_var) = (st, n) ->
+    {{ fun s' => s' = {| store := st; heap := heap s |} }}
+      p_cont n
+    {{ fun a s_after =>
+         exists st_pop,
+           Store.pop (store s_after) = Some st_pop /\
+           Q a {| store := st_pop; heap := heap s_after |}
+    }}) ->
+  {{ P }} with_var e_var p_cont {{ Q }}.
+Proof.
+  intros Hcont s HP.
+  unfold with_var, partial_exception_hoare.
+  destruct (Store.push (store s) (encode e_var)) as [st n] eqn:Epush.
+  specialize (Hcont s n st HP Epush).
+  unfold partial_exception_hoare in Hcont.
+  specialize (Hcont {| store := st; heap := heap s |} ltac:(reflexivity)).
+  destruct (p_cont n {| store := st; heap := heap s |}) as [ [ (v & s2) | ] | ] eqn:Epcont.
+  - destruct Hcont as (st_pop & Hpop & HQ).
+    unfold bind, get, put.
+    cbn.
+    rewrite Epush.
+    rewrite Epcont.
+    trivial.
+    rewrite Hpop.
+    cbn.
+    exact HQ.
+  - cbn in Hcont. contradiction.
+  - unfold bind, get, put.
+    cbn.
+    rewrite Epush.
+    rewrite Epcont.
+    trivial.
+Qed.
+
+
 Lemma sep_alloc_concrete_triple {St: Store} {Hp: Heap} {MS: MemStorable} 
   (n: N.t) (val: obj MS) (alloc_func : Hp -> N.t -> memval -> option (Hp * Pointer.t))
   (Q: Pointer.t -> Pred (State St Hp)) :
