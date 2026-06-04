@@ -260,6 +260,13 @@ Qed.
         );;
       read_var node.
 
+  Lemma nth_spec (ptr: Pointer.t) (l: list memval) (k: nat) (s0: State ListStore list_heap_carrier) :
+  {{ fun s => s = s0 /\ llist ptr l s }}
+    nth ptr (1%N) k
+  {{ fun res s' => llist res (List.skipn k l) s' /\ heap s' = heap s0 }}.
+
+  Proof. Admitted.
+
   Definition reverse (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
     do var (node: Pointer.t) <- ptr;
     do var (new_next: Pointer.t) <- Pointer.NULL;
@@ -275,6 +282,13 @@ Qed.
         write_var node old_next
       );;
     read_var new_next.
+
+  Lemma reverse_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) :
+  {{ fun s => s = s0 /\ llist ptr l s }}
+    reverse ptr (1%N)
+  {{ fun res s' => llist res (List.rev l) s' }}.
+
+  Proof. Admitted.
 
   Definition append (l0 l1: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
     do is_null <- eq_ptr l0 Pointer.NULL;
@@ -297,6 +311,12 @@ Qed.
       write_ptr last_next l1 ;;
       ret l0.
 
+  Lemma append_spec (l0 l1: Pointer.t) (la lb: list memval) (s0: State ListStore list_heap_carrier) :
+  {{ fun s => s = s0 /\ llist l0 la s /\ llist l1 lb s }}
+    append l0 l1 (1%N)
+  {{ fun res s' => llist res (la ++ lb) s' }}.
+
+  Proof. Admitted.
 
 End List.
 
