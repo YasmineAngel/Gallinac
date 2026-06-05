@@ -52,6 +52,24 @@ Structure Store: Type :=
 
     mutate_unchecked_mutate_spec: forall n v s v_old, BindsTo n v_old s -> mutate s n v = Some (mutate_unchecked s n v);
     push_mutate_spec: forall s n v s' s'' v', push s v = (s', n) -> mutate s' n v' = Some s'' -> push s v' = (s'', n);
+
+    push_spec_preserve: forall s n v s' n' v',
+      WF s ->
+      push s v = (s', n) ->
+      BindsTo n' v' s ->
+      BindsTo n' v' s';
+    pop_mutate_unchecked_fwd: forall s n v,
+      (exists s', pop s = Some s') ->
+      exists s'', pop (mutate_unchecked s n v) = Some s'';
+    pop_equal_fwd: forall s s',
+      Equal s s' ->
+      (exists t, pop s = Some t) ->
+      exists t, pop s' = Some t;
+    pop_pop_fwd: forall s n1 v1 n2 v2,
+      n1 <> n2 ->
+      BindsTo n1 v1 s ->
+      BindsTo n2 v2 s ->
+      exists t1 t2, pop s = Some t1 /\ pop t1 = Some t2;
   }.
 
 Arguments store St: rename.
@@ -86,6 +104,10 @@ Arguments pop_wf {_}.
 Arguments mutate_unchecked_spec {_}.
 Arguments mutate_unchecked_mutate_spec {_}.
 Arguments push_mutate_spec {_}.
+Arguments push_spec_preserve {_}.
+Arguments pop_mutate_unchecked_fwd {_}.
+Arguments pop_equal_fwd {_}.
+Arguments pop_pop_fwd {_}.
 
 Hint Resolve
   name_eq_dec
@@ -97,6 +119,7 @@ Hint Resolve
   pop_spec pop_wf
   mutate_unchecked_spec
   mutate_unchecked_mutate_spec push_mutate_spec
+  push_spec_preserve pop_mutate_unchecked_fwd pop_equal_fwd pop_pop_fwd
   : mem.
 
 Module Facts.

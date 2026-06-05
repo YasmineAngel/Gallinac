@@ -416,6 +416,17 @@ Proof.
     + apply (IHl p0 Htail).
 Qed.
 
+Lemma llist_reach_null_iff {Hp: Heap}: forall (h: Hp) p l,
+  llist_reach h p l ->
+  (p = Pointer.NULL <-> l = []).
+Proof.
+  intros h p l Hreach.
+  split.
+  - intros HNull. destruct l as [ | v l']; [ reflexivity | ].
+    cbn in Hreach. destruct Hreach as (HNN & _). contradiction.
+  - intros Hl. subst. cbn in Hreach. exact Hreach.
+Qed.
+
 Lemma llist_reach_of_llist {St Hp}: forall p l s,
   @llist St Hp p l s ->
   llist_reach (heap s) p l.

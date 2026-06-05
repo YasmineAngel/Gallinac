@@ -59,6 +59,7 @@ Section ListStore.
       pop := list_store_pop;
 
       mutate_unchecked := list_store_mutate_unchecked;
+      push_unchecked := list_store_mutate_unchecked;
     |}.
 
   Next Obligation.
@@ -352,6 +353,64 @@ Section ListStore.
     destruct (Nat.eq_dec n n) as [ _ | Hneq ]; [ | congruence ].
     inversion Hmutate; subst.
     reflexivity.
+  Qed.
+
+  Next Obligation.
+    intros [ binds nvar ] n v [ binds' nvar' ] n' v' HForall Hpush HBindIn.
+    cbn in *; inversion Hpush; subst; clear Hpush.
+    apply BindIn_tl.
+    - intros contra; subst n'.
+      induction HBindIn.
+      + inversion HForall; subst; cbn in *; lia.
+      + apply IHHBindIn.
+        inversion HForall; subst; assumption.
+    - exact HBindIn.
+  Qed.
+
+  Next Obligation.
+    intros [ binds nvar ] n v [ s' Hpop ].
+    cbn in Hpop.
+    destruct binds as [ | [ k0 v0 ] binds_rest ]; [ discriminate | clear Hpop ].
+    cbn.
+    destruct (findA (Nat.eqb n) ((k0, v0) :: binds_rest)) as [ v_old | ] eqn:Efind.
+    - destruct (Nat.eq_dec k0 n) as [ Heq | Hneq ]; cbn.
+      + subst n.
+        rewrite Nat.eqb_refl.
+        cbn.
+        eexists; reflexivity.
+      + cbn in Efind.
+        destruct (Nat.eqb_spec n k0) as [ Heqb | Hneqb ]; [ congruence | ].
+        rewrite Efind.
+        cbn.
+        destruct (Nat.eq_dec k0 n); [ congruence | ].
+        eexists; reflexivity.
+    - cbn in Efind.
+      destruct (Nat.eqb_spec n k0); [ discriminate Efind | ].
+      rewrite Efind.
+      cbn.
+      eexists; reflexivity.
+  Qed.
+
+  Next Obligation.
+  intros [ binds nvar ] [ binds' nvar' ] HEqual [ t Hpop ].
+  cbn in HEqual, Hpop.
+  destruct binds as [ | [ n v ] binds_rest ]; [ discriminate | clear Hpop ].
+  assert (HBI : BindIn n v binds') by (apply HEqual; constructor).
+  inversion HBI; subst; cbn; eexists; reflexivity.
+  Qed.
+
+  Next Obligation.
+    intros [ binds nvar ] n1 v1 n2 v2 Hne HBI1 HBI2.
+    cbn in HBI1, HBI2.
+    inversion HBI1 as [ ? ? rest1' | ? ? rest1' hd_k' hd_v' Hne1' HBI1'' ]; subst.
+    - inversion HBI2 as [ ? ? ? | ? ? ? ? ? Hne2 HBI2' ]; subst.
+      + contradiction (Hne eq_refl).
+      + destruct rest1' as [ | [ rk rv ] rest2 ].
+        * inversion HBI2'.
+        * cbn; do 2 eexists; split; reflexivity.
+    - destruct rest1' as [ | [ rk rv ] rest2 ].
+      + inversion HBI1''.
+      + cbn; do 2 eexists; split; reflexivity.
   Qed.
 
 End ListStore.

@@ -22,7 +22,7 @@ Module List.
       );;
     read_var count.
   
-  Lemma length_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) :
+  Lemma length_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
   {{ fun s => s = s0 /\ llist ptr l s }}
     length ptr (1%N)
   {{ fun res s' => res = N.of_nat (Datatypes.length l) /\ heap s' = heap s0 }}.
