@@ -101,7 +101,7 @@ Module List.
                        exact eq_refl.
                    --- destruct Hreach_cv as
                            [HNN [HWV [HCmp_cv [HRd_cv [addr_cv [np_cv [next_cv
-                             [HRef_cv [Hshift_cv [HWVnp [HRdnp [Hlookup_cv Htail_cv]]]]]]]]]]]].
+                             [HRef_cv [Hshift_cv [HWVnp [HRdnp [HWrite_cv [Hlookup_cv Htail_cv]]]]]]]]]]]]].
                        split. rewrite Hheap; exact HWV.
                        split. right; right; reflexivity.
                        split. exact HCmp_cv.
@@ -123,7 +123,7 @@ Module List.
                        { exact (conj HNN (conj HWV (conj HCmp_cv (conj HRd_cv
                            (ex_intro _ addr_cv (ex_intro _ np_cv (ex_intro _ next_cv
                              (conj HRef_cv (conj Hshift_cv (conj HWVnp
-                               (conj HRdnp (conj Hlookup_cv Htail_cv)))))))))))). }
+                               (conj HRdnp (conj HWrite_cv (conj Hlookup_cv Htail_cv))))))))))))). }
                        split. exact Hbn_s.
                        split. exact Hbc_s.
                        split. exact Hinv.
@@ -250,7 +250,7 @@ Module List.
                 ** intros s [Hheap [lr' [vh [k [Hreach_nd [Hbn_s [Hbc_s Hinv]]]]]]].
                    destruct Hreach_nd as
                        [HNN [HWV [HCmp [HRd [addr_nd [np_nd [next_nd
-                         [HRef [Hshift [HWVnp [HRdnp [Hlookup Htail]]]]]]]]]]]].
+                         [HRef [Hshift [HWVnp [HRdnp [HWrite_nd [Hlookup Htail]]]]]]]]]]]]].
                    split. rewrite Hheap; exact HWV.
                    exists np_nd.
                    split. exact Hshift.
@@ -529,10 +529,10 @@ Qed.
         );;
       read_var node.
 
-  Lemma nth_spec (ptr: Pointer.t) (l: list memval) (k: nat) (s0: State ListStore list_heap_carrier) :
+  Lemma nth_spec (ptr: Pointer.t) (l: list memval) (k: nat) (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
   {{ fun s => s = s0 /\ llist ptr l s }}
     nth ptr (1%N) k
-  {{ fun res s' => llist res (List.skipn k l) s' /\ heap s' = heap s0 }}.
+  {{ fun res s' => llist_reach (heap s') res (List.skipn k l) /\ heap s' = heap s0 }}.
 
   Proof. Admitted.
 

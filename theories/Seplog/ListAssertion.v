@@ -378,6 +378,7 @@ Fixpoint llist_reach {Hp: Heap} (h: Hp) (p: Pointer.t) (l: list memval) : Prop :
         Pointer.shift_fw p 1%N = Some next_ptr /\
         Heap.Facts.WValid h next_ptr /\
         Pointer.Allows next_ptr Operation.Read /\
+        Pointer.Allows next_ptr Operation.Write /\
         Heap.lookup h next_ptr = Some (StorablePtr.ptr_encode p0) /\
         llist_reach h p0 l'
   end.
@@ -414,7 +415,7 @@ Proof.
   induction l; intros p Hreach.
   - exact Hreach.
   - destruct Hreach as (HNN & HWV & HCmp & HRead & addr & next_ptr & p0
-                        & HRef & Hshift & HWVnp & HRnp & HLookup & Htail).
+                        & HRef & Hshift & HWVnp & HRnp & HWrite & HLookup & Htail).
     cbn.
     repeat split.
   * exact HNN.
@@ -427,6 +428,7 @@ Proof.
     + exact Hshift.
     + eapply wvalid_mono; [exact Hsub | exact HWVnp].
     + exact HRnp.
+    + exact HWrite.
     + eapply lookup_mono; [exact Hsub | exact HLookup].
     + apply (IHl p0 Htail).
 Qed.
@@ -484,6 +486,7 @@ Proof.
         exists addr, p0, sC, sD. repeat split; eauto.
         exists HRefState, s2. repeat split; eauto.
       * exact HAll2.
+      * exact HWrite.
       * apply -> lookup_some.
         exists (Addr.shift_fw addr 1%N).
         repeat split.
@@ -510,6 +513,21 @@ Proof.
         - apply substate_of_partition_r in HpartAB. exact HpartAB. }
       eapply llist_reach_monotone; [ exact HsubD | ].
       apply (IHl' p0 sD HstarDE).
+Qed.
+
+Lemma llist_tl {St Hp}: forall p v l' s,
+  @llist St Hp p (v :: l') s ->
+  exists next_ptr p',
+    Pointer.shift_fw p 1%N = Some next_ptr /\
+    Heap.lookup (heap s) next_ptr = Some (encode p') /\
+    llist_reach (heap s) p' l'.
+Proof.
+  intros p v l' s Hll.
+  pose proof (llist_reach_of_llist p (v :: l') s Hll) as Hreach.
+  cbn in Hreach.
+  destruct Hreach as (_ & _ & _ & _ & _ & next_ptr & p'
+                      & _ & Hshift & _ & _ & _ & HLookup & Htail).
+  exact (ex_intro _ next_ptr (ex_intro _ p' (conj Hshift (conj HLookup Htail)))).
 Qed.
 
 Lemma llist_star_mutate {St Hp}:
