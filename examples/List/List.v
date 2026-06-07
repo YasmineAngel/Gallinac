@@ -580,8 +580,9 @@ Qed.
       write_ptr last_next l1 ;;
       ret l0.
 
-  Lemma append_spec (l0 l1: Pointer.t) (la lb: list memval) (s0: State ListStore list_heap_carrier) :
-  {{ fun s => s = s0 /\ llist l0 la s /\ llist l1 lb s }}
+  Lemma append_spec (l0 l1: Pointer.t) (la lb: list memval)
+      (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
+  {{ fun s => s = s0 /\ (llist l0 la ** llist l1 lb) s }}
     append l0 l1 (1%N)
   {{ fun res s' => llist res (la ++ lb) s' }}.
 
