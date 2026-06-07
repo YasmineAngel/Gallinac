@@ -1,6 +1,9 @@
-From Stdlib Require Import Lia NArith.
+From Stdlib Require Import Lia NArith List.
 From GallinaC Require Import Programming.
 From GallinaC Require Import Frame GenAssertion Hoare InternalTriples ListAssertion Pred PrimitivesTriples SepTriples StateAssertion.
+Import ListNotations.
+
+Local Open Scope state_scope.
 
 (* print_ll ist not implemented as it performs only I/O *)
 (* Instead, it is stubbed and will be excluded from extraction *)
@@ -549,7 +552,7 @@ Qed.
       );;
     read_var new_next.
 
-  Lemma reverse_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) :
+  Lemma reverse_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
   {{ fun s => s = s0 /\ llist ptr l s }}
     reverse ptr (1%N)
   {{ fun res s' => llist res (List.rev l) s' }}.

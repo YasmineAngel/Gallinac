@@ -53,7 +53,8 @@ Fixpoint llist {St Hp} (p:Pointer.t) (l: list memval) : Pred (State St Hp) :=
          Pointer.Allows p Operation.Read /\
          exists next_ptr,
            Pointer.shift_fw p 1%N = Some next_ptr /\
-           Pointer.Allows next_ptr Operation.Read |] **
+           Pointer.Allows next_ptr Operation.Read /\
+           Pointer.Allows next_ptr Operation.Write |] **
       Exists a p', [| Pointer.References p a |] ** a ||~> (v, VPtr p') ** llist p' l'
   end.
 
@@ -167,7 +168,22 @@ Proof.
   intros p v l s Hll.
   cbn in Hll.
   destruct Hll as (s1 & s2 & _ & _ & _ & ((_ & _ & HsfA) & _) & _).
-  exact HsfA.
+  destruct HsfA as (next_ptr & HShift & HRead & _).
+  exact (ex_intro _ next_ptr (conj HShift HRead)).
+Qed.
+
+Lemma llist_allows_write_next {St Hp}: forall p v l s next_ptr,
+  @llist St Hp p (v :: l) s ->
+  Pointer.shift_fw p 1%N = Some next_ptr ->
+  Pointer.Allows next_ptr Operation.Write.
+Proof.
+  intros p v l s next_ptr Hll Hshift.
+  cbn in Hll.
+  destruct Hll as (s1 & s2 & _ & _ & _ & ((_ & _ & HsfA) & _) & _).
+  destruct HsfA as (next_ptr' & HShift' & _ & HWrite).
+  rewrite HShift' in Hshift.
+  injection Hshift as <-.
+  exact HWrite.
 Qed.
 
 Lemma llist_wvalid_next {St Hp}: forall p v l s next_ptr,
@@ -192,7 +208,6 @@ Proof.
   - assert (Hcell_sub : (Addr.shift_fw a 1) |-> (VPtr p0) $<= heap s2).
     {
       unfold Two, One in Hcell. rewrite Hcell.
-      (* Changed proj2 to proj1 here *)
       pose proof (proj1 (@of_list_spec Hp a [v; VPtr p0] 1 (VPtr p0))) as Hspec.
       cbn in Hspec.
       apply (Hspec eq_refl).
@@ -453,7 +468,7 @@ Proof.
     destruct HliftC as (HRefState & HhC).
     destruct HhC as [s2 (HstE & HstF & HpartEF & Hrefs & Hcell_pt)].
     destruct Hrefs as [HRef HemptyE].
-    destruct HNN as [HNN_ptr [HAll1 [next_ptr [HShift HAll2]]]].
+    destruct HNN as [HNN_ptr [HAll1 [next_ptr [HShift [HAll2 HWrite]]]]].
     repeat split.
     + exact HNN_ptr.
     + exact HWV_p.
@@ -495,5 +510,155 @@ Proof.
         - apply substate_of_partition_r in HpartAB. exact HpartAB. }
       eapply llist_reach_monotone; [ exact HsubD | ].
       apply (IHl' p0 sD HstarDE).
+Qed.
+
+Lemma llist_star_mutate {St Hp}:
+  forall (nd acc old_next: Pointer.t) (v: memval) (l_rem l_acc: list memval)
+         (node_next_ptr: Pointer.t)
+         (s: State St Hp),
+  (llist nd (v :: l_rem) ** llist acc l_acc) s ->
+  Pointer.shift_fw nd 1%N = Some node_next_ptr ->
+  Heap.lookup (heap s) node_next_ptr = Some (encode old_next) ->
+  exists h',
+    Heap.mutate (heap s) node_next_ptr (encode acc) = Some h' /\
+    (llist nd (v :: l_acc) ** llist old_next l_rem)
+      {| store := store s; heap := h' |}.
+Proof.
+  intros nd acc old_next v l_rem l_acc node_next_ptr s H_star H_shift H_lookup.
+  destruct H_star as (s_a & s_b & _ & _ & H_ab & H_ll_a & H_ll_b).
+  cbn in H_ll_a.
+  destruct H_ll_a as (sLift & sRest & _ & _ & H_lr & H_lp & H_re).
+  cbn in H_lp.
+  destruct H_lp as [[HNN [HRead [np [H_sl [HReadNP HWriteNP]]]]] H_eLift].
+  rewrite H_eLift, op_id_l in H_lr. injection H_lr as H_restH.
+  destruct H_re as (addr_nd & p0 & sCR & sTL & _ & _ & H_cr_tl & H_cr & H_tl).
+  destruct H_cr as (sE & sF & _ & _ & H_ef & H_refE & H_twoF).
+  cbn in H_refE.
+  destruct H_refE as [H_ref_nd H_eRef].
+  rewrite H_eRef, op_id_l in H_ef. injection H_ef as H_fH.
+  unfold Two in H_twoF.
+  assert (H_hCR : heap sCR = of_list addr_nd [v; VPtr p0]) by congruence.
+  rewrite H_restH, H_hCR in H_cr_tl.
+  assert (H_ne : Addr.shift_fw addr_nd 1 <> addr_nd).
+  { intros c. destruct addr_nd; cbn in c; inversion c; lia. }
+  destruct (proj1 (@one_ne_addr Hp (Addr.shift_fw addr_nd 1) addr_nd (VPtr p0) v) H_ne) as (h2old & H2old).
+  assert (H_ol_old : of_list addr_nd [v; VPtr p0] = h2old).
+  { unfold of_list; cbn; rewrite op_id_r; cbn; now rewrite H2old. }
+  destruct (proj1 (@one_ne_addr Hp (Addr.shift_fw addr_nd 1) addr_nd (encode acc) v) H_ne) as (h2new & H2new).
+  assert (H_ol_new : of_list addr_nd [v; encode acc] = h2new).
+  { unfold of_list; cbn; rewrite op_id_r; cbn.
+    change (StorablePtr.ptr_encode acc) with (encode acc).
+    rewrite H2new.
+    reflexivity. }
+  rewrite H_ol_old in H_cr_tl.
+  assert (H_E1 : exists h_BC,
+    (addr_nd |-> v) $+ heap sTL = Some h_BC /\
+    ((Addr.shift_fw addr_nd 1) |-> (VPtr p0)) $+ h_BC = Some (heap s_a)).
+  { specialize (op_assc ((Addr.shift_fw addr_nd 1) |-> (VPtr p0)) (addr_nd |-> v) (heap sTL))
+      as Eassoc.
+    unfold Basics.flip in Eassoc.
+    rewrite H2old in Eassoc. cbn in Eassoc. rewrite H_cr_tl in Eassoc.
+    destruct ((addr_nd |-> v) $+ heap sTL) eqn:E_BC.
+    - cbn in Eassoc. eexists. exact (conj eq_refl (eq_sym Eassoc)).
+    - cbn in Eassoc. discriminate. }
+  destruct H_E1 as (h_BC & E_BC & E1).
+  assert (H_E2 : exists h_BCD,
+    h_BC $+ heap s_b = Some h_BCD /\
+    ((Addr.shift_fw addr_nd 1) |-> (VPtr p0)) $+ h_BCD = Some (heap s)).
+  { specialize (op_assc ((Addr.shift_fw addr_nd 1) |-> (VPtr p0)) h_BC (heap s_b)) as Eassoc.
+    unfold Basics.flip in Eassoc.
+    rewrite E1 in Eassoc. cbn in Eassoc. rewrite H_ab in Eassoc.
+    destruct (h_BC $+ heap s_b) eqn:E_BCD.
+    - cbn in Eassoc. eexists. exact (conj eq_refl (eq_sym Eassoc)).
+    - cbn in Eassoc. discriminate. }
+  destruct H_E2 as (h_BCD & E_BCD & E2).
+  assert (H_ref_nnp : Pointer.References node_next_ptr (Addr.shift_fw addr_nd 1)).
+  { exact (shift_fw_references nd addr_nd 1%N node_next_ptr H_ref_nd H_shift). }
+  assert (H_np : np = node_next_ptr).
+  { rewrite H_sl in H_shift. injection H_shift; auto. }
+  subst np.
+  assert (H_sub_p0 : ((Addr.shift_fw addr_nd 1) |-> (VPtr p0)) $<= heap s).
+  { apply (substate_tran _ h2old).
+    - exact (substate_of_partition_l H2old).
+    - apply (substate_tran _ (heap s_a)).
+      + exact (substate_of_partition_l H_cr_tl).
+      + exact (substate_of_partition_l H_ab). }
+  apply (proj2 (Heap.lookup_some (heap s) node_next_ptr (encode old_next))) in H_lookup.
+  destruct H_lookup as (addr_l & H_ref_l & _ & H_sub_old).
+  assert (H_al : addr_l = Addr.shift_fw addr_nd 1).
+  { inversion H_ref_l; subst. inversion H_ref_nnp; subst. reflexivity. }
+  subst addr_l.
+  assert (H_veq : VPtr p0 = encode old_next).
+  { exact (one_fun (Addr.shift_fw addr_nd 1) (VPtr p0) (encode old_next) (heap s)
+             H_sub_p0 H_sub_old). }
+  cbn in H_veq. injection H_veq as H_p0eq. subst p0.
+  destruct (proj1 (Heap.mutate_some (heap s) node_next_ptr (encode acc))
+    (ex_intro _ (Addr.shift_fw addr_nd 1)
+      (conj H_ref_nnp (conj HWriteNP (ex_intro _ (VPtr old_next) H_sub_p0)))))
+    as (h' & H_mut).
+  exists h'. refine (conj H_mut _).
+  assert (H_h' : ((Addr.shift_fw addr_nd 1) |-> (encode acc)) $+ h_BCD = Some h').
+  { exact (Heap.mutate_mem (heap s) node_next_ptr (encode acc) h'
+             (Addr.shift_fw addr_nd 1) (VPtr old_next) h_BCD H_mut H_ref_nnp E2). }
+  assert (H_EA : exists h_an,
+    ((Addr.shift_fw addr_nd 1) |-> (encode acc)) $+ h_BC = Some h_an /\
+    h_an $+ heap s_b = Some h').
+  { specialize (op_assc ((Addr.shift_fw addr_nd 1) |-> (encode acc)) h_BC (heap s_b)) as Eassoc.
+    unfold Basics.flip in Eassoc.
+    rewrite E_BCD in Eassoc.
+    case_eq (((Addr.shift_fw addr_nd 1) |-> (encode acc)) $+ h_BC).
+    - intros h_an E_an.
+      rewrite E_an in Eassoc.
+      eexists. exact (conj eq_refl (eq_trans Eassoc H_h')).
+    - intros E_an.
+      rewrite E_an in Eassoc.
+      exfalso.
+      assert (contra : None = Some h') by exact (eq_trans Eassoc H_h').
+      discriminate. }
+  destruct H_EA as (h_an & E_an & EA).
+  assert (EB : h2new $+ heap sTL = Some h_an).
+  { specialize (op_assc ((Addr.shift_fw addr_nd 1) |-> (encode acc)) (addr_nd |-> v) (heap sTL))
+      as Eassoc.
+    unfold Basics.flip in Eassoc.
+    rewrite H2new in Eassoc.
+    rewrite E_BC in Eassoc.
+    exact (eq_trans Eassoc E_an). }
+  assert (H_EC : exists h_nd,
+    h2new $+ heap s_b = Some h_nd /\
+    h_nd $+ heap sTL = Some h').
+  { specialize (op_assc h2new (heap sTL) (heap s_b)) as Eassoc1.
+    unfold Basics.flip in Eassoc1.
+    rewrite EB in Eassoc1. cbn in Eassoc1. rewrite EA in Eassoc1.
+    specialize (op_assc h2new (heap s_b) (heap sTL)) as Eassoc2.
+    unfold Basics.flip in Eassoc2.
+    rewrite (op_comm (heap s_b) (heap sTL)) in Eassoc2.
+    destruct (heap sTL $+ heap s_b) eqn:E_Ts.
+    - cbn in Eassoc1.
+      cbn in Eassoc2. rewrite <- Eassoc1 in Eassoc2.
+      destruct (h2new $+ heap s_b) eqn:E_nd.
+      + cbn in Eassoc2. eexists. exact (conj eq_refl Eassoc2).
+      + cbn in Eassoc2. discriminate.
+    - cbn in Eassoc1. discriminate. }
+  destruct H_EC as (h_nd & E_nd & EC2).
+  exists {| store := store s; heap := h_nd |}, {| store := store s; heap := heap sTL |}.
+  cbn. split; [reflexivity | split; [reflexivity | split; [exact EC2 | split]]].
+  - cbn.
+    exists {| store := store s; heap := $0 |}, {| store := store s; heap := h_nd |}.
+    cbn. split; [reflexivity | split; [reflexivity | split; [apply op_id_l | split]]].
+    + exact (conj (conj HNN (conj HRead
+        (ex_intro _ node_next_ptr (conj H_shift (conj HReadNP HWriteNP))))) eq_refl).
+    + exists addr_nd, acc,
+             {| store := store s; heap := h2new |},
+             {| store := store s; heap := heap s_b |}.
+      cbn. split; [reflexivity | split; [reflexivity | split; [exact E_nd | split]]].
+      * exists {| store := store s; heap := $0 |},
+               {| store := store s; heap := h2new |}.
+        cbn. split; [reflexivity | split; [reflexivity | split; [apply op_id_l | split]]].
+        -- exact (conj H_ref_nd eq_refl).
+        -- unfold Two. exact (eq_sym H_ol_new).
+      * exact (llist_indep_regs acc l_acc s_b
+                 {| store := store s; heap := heap s_b |} eq_refl H_ll_b).
+  - exact (llist_indep_regs old_next l_rem sTL
+             {| store := store s; heap := heap sTL |} eq_refl H_tl).
 Qed.
 
