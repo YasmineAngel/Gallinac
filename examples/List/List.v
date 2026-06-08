@@ -26,10 +26,11 @@ Module List.
       );;
     read_var count.
   
-  Lemma length_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
-  {{ fun s => s = s0 /\ llist ptr l s }}
+  Lemma length_spec (ptr: Pointer.t) (l: list memval) P
+      (HWF: forall s, P s -> Store.WF (store s)) :
+  {{ P && llist ptr l }}
     length ptr (1%N)
-  {{ fun res s' => res = N.of_nat (Datatypes.length l) /\ heap s' = heap s0 }}.
+  {{ fun res s' => res = N.of_nat (Datatypes.length l) /\ llist ptr l s' }}.
 
   Proof.
     unfold length.
@@ -301,20 +302,20 @@ Module List.
   Definition is_empty (ptr: Pointer.t): program (State ListStore list_heap_carrier) bool :=
     eq_ptr ptr Pointer.NULL.
 
-  Lemma is_empty_spec (ptr: Pointer.t) (s0 : State ListStore list_heap_carrier):
-    {{ fun s => s = s0 /\ Facts.WValid (heap s) ptr /\ Pointer.Allows ptr Operation.Cmp}}
+  Lemma is_empty_spec (ptr: Pointer.t) P (Q: bool -> Pred _):
+    {{ P && (fun s => forall b, Q b s) && fun s => Facts.WValid (heap s) ptr /\ Pointer.Allows ptr Operation.Cmp}}
       is_empty ptr
-    {{ fun res s' => Pointer.cmp ptr Pointer.NULL = Some res /\ s' = s0 }}.
+    {{ fun res => P && Q res }}.
   Proof.
     unfold is_empty.
     eapply sep_weaken.
     - apply sep_eq_ptr_triple.
-    - intros s (-> & HWValid & HAllows).
-      split. { exact HWValid. }
-      split. { right. right. reflexivity. }
-      split. { exact HAllows. }
-      split. { constructor. }
-      intros b' Hcmp. split; auto.
+    - intros s ((HP & HQ) & VALID & ALLOWS).
+      split; [ assumption | ].
+      split; [ now repeat constructor | ].
+      split; [ assumption | ].
+      split; [ now constructor | ].
+      intros b'. split; auto.
   Qed.
 
   Definition cons [MS: MemStorable] (ptr: Pointer.t) (n_ofst: N.t) (d_ofst: N.t) (v: MS): program (State ListStore list_heap_carrier) Pointer.t :=
@@ -325,23 +326,23 @@ Module List.
     write_ptr next_ptr ptr ;;
     ret new_node.
 
-Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) (s0 : State ListStore list_heap_carrier):
-  {{ fun s => s = s0 /\
-              Facts.WValid (Primitives.heap s) ptr /\
-              d_ofst <> n_ofst /\
-              (d_ofst < 2)%N /\
-              (n_ofst < 2)%N /\
-              exists bid, GenId.get (list_heap_to_allocator (heap s)) = Some bid }}
+Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS)
+    (Q: Pointer.t -> Pred _):
+  {{ fun s =>
+       Facts.WValid (Primitives.heap s) ptr /\
+       d_ofst <> n_ofst /\
+       (d_ofst < 2)%N /\
+       (n_ofst < 2)%N /\
+       (exists bid, GenId.get (list_heap_to_allocator (heap s)) = Some bid) /\
+       forall new_node hp_alloc data_ptr next_ptr hp_mut1 hp_final,
+         list_heap_alloc (heap s) 2 (StorablePtr.ptr_encode Pointer.NULL) = Some (hp_alloc, new_node) ->
+         Pointer.shift_fw new_node d_ofst = Some data_ptr ->
+         list_heap_mutate hp_alloc data_ptr (encode v) = Some hp_mut1 ->
+         Pointer.shift_fw new_node n_ofst = Some next_ptr ->
+         list_heap_mutate hp_mut1 next_ptr (StorablePtr.ptr_encode ptr) = Some hp_final ->
+         Q new_node {| store := Primitives.store s; heap := hp_final |} }}
     cons ptr n_ofst d_ofst v
-  {{ fun new_node s' =>
-     Primitives.store s' = Primitives.store s0 /\
-     s' <> s0 /\
-     exists hp_alloc data_ptr next_ptr hp_mut1,
-       list_heap_alloc (heap s0) 2 (StorablePtr.ptr_encode Pointer.NULL) = Some (hp_alloc, new_node) /\
-       Pointer.shift_fw new_node d_ofst = Some data_ptr /\
-       list_heap_mutate hp_alloc data_ptr (encode v) = Some hp_mut1 /\
-       Pointer.shift_fw new_node n_ofst = Some next_ptr /\
-       list_heap_mutate hp_mut1 next_ptr (StorablePtr.ptr_encode ptr) = Some (heap s') }}.
+  {{ Q }}.
 
  Proof.
     unfold cons.
@@ -478,16 +479,16 @@ Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) 
       do next_ptr <- ptr ~+> n_ofst;
       read_ptr next_ptr.
 
-  Lemma tl_spec (ptr next_ptr next_node: Pointer.t) (n_ofst: N.t) (s0 : State ListStore list_heap_carrier):
-    {{ fun s => s = s0 /\ 
-                Facts.WValid (Primitives.heap s) ptr /\ 
-                Pointer.Allows ptr Operation.Read /\
-                Pointer.shift_fw ptr n_ofst = Some next_ptr /\
-                Facts.WValid (Primitives.heap s) next_ptr /\
-                Pointer.Allows next_ptr Operation.Read /\
-                Heap.lookup (Primitives.heap s) next_ptr = Some (encode next_node) }}
+  Lemma tl_spec (ptr next_ptr next_node: Pointer.t) (n_ofst: N.t) P (Q: Pointer.t -> Pred _):
+    {{ P && (fun s => Q next_node s) && fun s =>
+         Facts.WValid (Primitives.heap s) ptr /\
+         Pointer.Allows ptr Operation.Read /\
+         Pointer.shift_fw ptr n_ofst = Some next_ptr /\
+         Facts.WValid (Primitives.heap s) next_ptr /\
+         Pointer.Allows next_ptr Operation.Read /\
+         Heap.lookup (Primitives.heap s) next_ptr = Some (encode next_node) }}
       tl ptr n_ofst
-    {{ fun res s' => res = next_node /\ s' = s0 }}.
+    {{ fun res => P && Q res }}.
 
  Proof.
   unfold tl.
@@ -495,23 +496,24 @@ Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS) 
     (Q := fun np s1 =>
        np = next_ptr /\
        Heap.lookup (heap s1) next_ptr = Some (encode next_node) /\
-       s1 = s0).
+       P s1 /\ Q next_node s1).
   - intro np.
     eapply sep_weaken.
     + apply sep_read_ptr_triple.
-    + intros s (Hnp & Hlookup & ->).
+    + intros s (Hnp & Hlookup & HP & HQn).
       exists next_node. split.
       * rewrite Hnp. exact Hlookup.
-      * split; reflexivity.
+      * split. exact HP. exact HQn.
   - eapply sep_weaken.
     + apply sep_shift_fw_ptr_triple.
-    + intros s (-> & Hptrv & _ & Hshift & Hnextv & _ & Hlookup).
+    + intros s ((HP & HQn) & Hptrv & _ & Hshift & Hnextv & _ & Hlookup).
       split. { exact Hptrv. }
       exists next_ptr. split. { exact Hshift. }
       split. { exact Hnextv. }
       split. { reflexivity. }
       split. { exact Hlookup. }
-      reflexivity.
+      split. { exact HP. }
+      exact HQn.
 Qed.
 
 
@@ -529,10 +531,11 @@ Qed.
         );;
       read_var node.
 
-  Lemma nth_spec (ptr: Pointer.t) (l: list memval) (k: nat) (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
-  {{ fun s => s = s0 /\ llist ptr l s }}
+  Lemma nth_spec (ptr: Pointer.t) (l: list memval) (k: nat) P
+      (HWF: forall s, P s -> Store.WF (store s)) :
+  {{ P && llist ptr l }}
     nth ptr (1%N) k
-  {{ fun res s' => llist_reach (heap s') res (List.skipn k l) /\ heap s' = heap s0 }}.
+  {{ fun res s' => llist_reach (heap s') res (List.skipn k l) /\ llist ptr l s' }}.
 
   Proof.
     unfold nth.
@@ -882,8 +885,9 @@ Qed.
       );;
     read_var new_next.
 
-  Lemma reverse_spec (ptr: Pointer.t) (l: list memval) (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
-  {{ fun s => s = s0 /\ llist ptr l s }}
+  Lemma reverse_spec (ptr: Pointer.t) (l: list memval) P
+      (HWF: forall s, P s -> Store.WF (store s)) :
+  {{ P && llist ptr l }}
     reverse ptr (1%N)
   {{ fun res s' => llist res (List.rev l) s' }}.
 
@@ -910,9 +914,9 @@ Qed.
       write_ptr last_next l1 ;;
       ret l0.
 
-  Lemma append_spec (l0 l1: Pointer.t) (la lb: list memval)
-      (s0: State ListStore list_heap_carrier) (HWF: Store.WF (store s0)) :
-  {{ fun s => s = s0 /\ (llist l0 la ** llist l1 lb) s }}
+  Lemma append_spec (l0 l1: Pointer.t) (la lb: list memval) P
+      (HWF: forall s, P s -> Store.WF (store s)) :
+  {{ P && (llist l0 la ** llist l1 lb) }}
     append l0 l1 (1%N)
   {{ fun res s' => llist res (la ++ lb) s' }}.
 

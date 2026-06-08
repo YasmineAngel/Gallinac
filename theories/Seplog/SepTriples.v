@@ -63,12 +63,12 @@ Lemma sep_eq_ptr_triple
   (Q : bool -> Pred (State St Hp)) :
   {{ fun s =>
        Facts.WValid (heap s) ptr_l /\
-       Facts.WValid (heap s) ptr_r /\
-       Pointer.Allows ptr_l Operation.Cmp /\
-       Pointer.Allows ptr_r Operation.Cmp /\
-       forall b, Pointer.cmp ptr_l ptr_r = Some b -> Q b s }}
+         Facts.WValid (heap s) ptr_r /\
+         Pointer.Allows ptr_l Operation.Cmp /\
+         Pointer.Allows ptr_r Operation.Cmp /\
+         forall b, Q b s }}
     eq_ptr ptr_l ptr_r
-  {{ Q }}.
+    {{ Q }}.
 Proof.
   intros s (HWValid_l & HWValid_r & HAllows_l & HAllows_r & HQ).
   unfold eq_ptr, partial_exception_hoare. cbn.
@@ -82,7 +82,7 @@ Proof.
   2: contradiction.
   cbn.
   destruct (Pointer.cmp ptr_l ptr_r) eqn:Ecmp.
-  - cbn. apply HQ. reflexivity.
+  - cbn. apply HQ.
   - exfalso.
     unfold Pointer.cmp in Ecmp.
     destruct (Pointer.allows_spec ptr_l Operation.Cmp); [ | contradiction ].
