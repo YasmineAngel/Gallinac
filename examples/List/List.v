@@ -534,7 +534,337 @@ Qed.
     nth ptr (1%N) k
   {{ fun res s' => llist_reach (heap s') res (List.skipn k l) /\ heap s' = heap s0 }}.
 
-  Proof. Admitted.
+  Proof.
+    unfold nth.
+    eapply sep_with_var_triple.
+    intros s_init n_node st1 [-> Hllist] Hpush_node.
+    pose proof (push_spec2 _ _ _ _ HWF Hpush_node) as Hbn1.
+    pose proof (push_wf _ _ _ _ HWF Hpush_node) as HWF1.
+    pose proof (llist_reach_of_llist ptr l s0 Hllist) as Hreach0.
+    eapply sep_with_var_triple.
+    intros s1 n_idx st2 -> Hpush_idx.
+    pose proof (push_spec2 _ _ _ _ HWF1 Hpush_idx) as Hbi2.
+    pose proof (push_wf _ _ _ _ HWF1 Hpush_idx) as HWF2.
+    pose proof (push_spec_preserve _ _ _ _ _ _ HWF1 Hpush_idx Hbn1) as Hbn2.
+    pose proof (fun v' => push_spec1 _ _ _ _ v' HWF1 Hpush_idx) as Hfresh.
+    assert (Hn_ne : n_node <> n_idx) by
+      (intro Heq; subst; exact (Hfresh _ Hbn1)).
+    pose (Iw := fun (b : bool) (s : State ListStore list_heap_carrier) =>
+      heap s = heap s0 /\
+      exists (curr : Pointer.t) (l_rem : list memval) (k_rem : nat),
+        llist_reach (heap s0) curr l_rem /\
+        BindsTo n_node (encode curr) (store s) /\
+        BindsTo n_idx  (encode k_rem) (store s) /\
+        Nat.le k_rem k /\
+        l_rem = List.skipn (k - k_rem) l /\
+        match b with
+        | true  => curr <> Pointer.NULL /\ 0 < k_rem
+        | false => curr = Pointer.NULL  \/ k_rem = 0
+        end).
+    eapply sep_seq_rule with (Q := fun s => Iw false s).
+    - eapply sep_weaken.
+      + apply sep_read_var_triple.
+      + intros s [Hheap [curr [l_rem [k_rem [Hreach [Hbn_s [Hbi_s [Hle [Hlrem Hterm]]]]]]]]].
+        exists curr.
+        split. exact Hbn_s.
+        destruct (pop_pop_fwd (store s) n_node (encode curr) n_idx (encode k_rem)
+          Hn_ne Hbn_s Hbi_s) as [t1 [t2 [Hp1 Hp2]]].
+        exists t1. split. exact Hp1.
+        exists t2. split. exact Hp2.
+        destruct Hterm as [Hnull | Hzero].
+        * subst curr.
+          assert (Hlnil : l_rem = [])
+            by exact (proj1 (llist_reach_null_iff (heap s0) Pointer.NULL l_rem Hreach) eq_refl).
+          subst l_rem.
+          assert (Hskipk : List.skipn k l = []).
+          { replace k with (k_rem + (k - k_rem)) by lia.
+            rewrite <- List.skipn_skipn.
+            rewrite Hlnil.
+            apply List.skipn_nil. }
+          split.
+          -- rewrite Hheap, Hskipk. cbn. reflexivity.
+          -- exact Hheap.
+        * subst k_rem.
+          rewrite Nat.sub_0_r in Hlrem. subst l_rem.
+          split.
+          -- rewrite Hheap. exact Hreach.
+          -- exact Hheap.
+    - eapply sep_weaken.
+      + apply sep_while_rule with (I := Iw).
+        * eapply sep_bind_rule with
+            (Q := fun (cv : Pointer.t) s =>
+              heap s = heap s0 /\
+              exists (l_rem : list memval) (k_rem : nat),
+                llist_reach (heap s0) cv l_rem /\
+                BindsTo n_node (encode cv) (store s) /\
+                BindsTo n_idx  (encode k_rem) (store s) /\
+                Nat.le k_rem k /\
+                l_rem = List.skipn (k - k_rem) l).
+          -- intro cv.
+             eapply sep_bind_rule with
+               (Q := fun (c : bool) s =>
+                 heap s = heap s0 /\
+                 BindsTo n_node (encode cv) (store s) /\
+                 exists (l_rem : list memval) (k_rem : nat),
+                   llist_reach (heap s0) cv l_rem /\
+                   BindsTo n_idx (encode k_rem) (store s) /\
+                   Nat.le k_rem k /\
+                   l_rem = List.skipn (k - k_rem) l /\
+                   ((c = true /\ cv = Pointer.NULL) \/ (c = false /\ cv <> Pointer.NULL))).
+             ++ intro c.
+                eapply sep_bind_rule with
+                  (Q := fun (i : nat) s => Iw (andb (negb c) (Nat.ltb 0 i)) s).
+                ** intro i. apply sep_ret_triple.
+                ** eapply sep_weaken.
+                   --- apply sep_read_var_triple.
+                   --- intros s [Hheap [Hbn_s [l_rem [k_rem [Hreach [Hbi_s [Hle [Hlrem Hcase]]]]]]]].
+                       exists k_rem. split. exact Hbi_s.
+                       unfold Iw.
+                       split. exact Hheap.
+                       exists cv, l_rem, k_rem.
+                       refine (conj Hreach (conj Hbn_s (conj Hbi_s (conj Hle (conj Hlrem _))))).
+                       destruct Hcase as [[-> ->] | [-> Hcvnn]].
+                       { cbn. left. reflexivity. }
+                       { cbn.
+                         destruct k_rem as [ | k_rem']; cbn.
+                         - right. reflexivity.
+                         - split.
+                           + exact Hcvnn.
+                           + apply Nat.lt_0_succ. }
+             ++ eapply sep_weaken.
+                ** apply sep_eq_ptr_triple.
+                ** intros s [Hheap [l_rem [k_rem [Hreach [Hbn_s [Hbi_s [Hle Hlrem]]]]]]].
+                   destruct l_rem as [ | vh l_rem'].
+                   { cbn in Hreach. subst cv.
+                     split. right; right; reflexivity.
+                     split. right; right; reflexivity.
+                     split. exact Pointer.AllowsNull.
+                     split. exact Pointer.AllowsNull.
+                     intros c Hcmp.
+                     cbn in Hcmp. inversion Hcmp; subst c.
+                     split. exact Hheap.
+                     split. exact Hbn_s.
+                     exists (@nil memval), k_rem.
+                     split. cbn. reflexivity.
+                     split. exact Hbi_s.
+                     split. exact Hle.
+                     split. exact Hlrem.
+                     left. split; reflexivity. }
+                   { destruct Hreach as
+                         [HNN [HWV [HCmp [HRd [addr [np [nxt [HRef [Hshift [HWVnp [HRdnp [HWrite_np [Hlookup Htail]]]]]]]]]]]]].
+                     split. rewrite Hheap. exact HWV.
+                     split. right; right; reflexivity.
+                     split. exact HCmp.
+                     split. exact Pointer.AllowsNull.
+                     intros c Hcmp.
+                     assert (Hallow : Pointer.allows cv Operation.Cmp = true).
+                     { destruct (Pointer.allows_spec cv Operation.Cmp); [reflexivity | contradiction]. }
+                     unfold Pointer.cmp in Hcmp.
+                     rewrite Hallow in Hcmp. cbn in Hcmp.
+                     inversion Hcmp; subst c.
+                     assert (Hceqb : Pointer.eqb cv Pointer.NULL = false).
+                     { apply Pointer.eqb_neq. exact HNN. }
+                     split. exact Hheap.
+                     split. exact Hbn_s.
+                     exists (vh :: l_rem'), k_rem.
+                     split.
+                     { exact (conj HNN (conj HWV (conj HCmp (conj HRd
+                         (ex_intro _ addr (ex_intro _ np (ex_intro _ nxt
+                           (conj HRef (conj Hshift (conj HWVnp (conj HRdnp (conj HWrite_np (conj Hlookup Htail))))))))))))). }
+                     split. exact Hbi_s.
+                     split. exact Hle.
+                     split. exact Hlrem.
+                     right. exact (conj Hceqb HNN). }
+          -- eapply sep_weaken.
+             ++ apply sep_read_var_triple.
+             ++ intros s [b [Hheap [curr [l_rem [k_rem [Hreach [Hbn_s [Hbi_s [Hle [Hlrem _]]]]]]]]]].
+                exists curr. split. exact Hbn_s.
+                exact (conj Hheap (ex_intro _ l_rem (ex_intro _ k_rem
+                  (conj Hreach (conj Hbn_s (conj Hbi_s (conj Hle Hlrem))))))).
+        * eapply sep_bind_rule with
+            (Q := fun (nd : Pointer.t) s =>
+              heap s = heap s0 /\
+              exists (l_rem : list memval) (k_rem : nat),
+                llist_reach (heap s0) nd l_rem /\
+                BindsTo n_node (encode nd) (store s) /\
+                BindsTo n_idx  (encode k_rem) (store s) /\
+                Nat.le k_rem k /\
+                l_rem = List.skipn (k - k_rem) l /\
+                nd <> Pointer.NULL /\
+                0 < k_rem).
+          -- intro nd.
+             eapply sep_bind_rule with
+               (Q := fun (np : Pointer.t) s =>
+                 heap s = heap s0 /\
+                 exists (l_rem' : list memval) (k_rem : nat) (old_nxt : Pointer.t),
+                   Pointer.shift_fw nd 1%N = Some np /\
+                   Heap.lookup (heap s0) np = Some (encode old_nxt) /\
+                   llist_reach (heap s0) old_nxt l_rem' /\
+                   BindsTo n_node (encode nd) (store s) /\
+                   BindsTo n_idx  (encode k_rem) (store s) /\
+                   0 < k_rem /\ Nat.le k_rem k /\
+                   l_rem' = List.skipn (k - (k_rem - 1)) l).
+             ++ intro np.
+                eapply sep_bind_rule with
+                  (Q := fun (old_nxt : Pointer.t) s =>
+                    heap s = heap s0 /\
+                    exists (l_rem' : list memval) (k_rem : nat),
+                      llist_reach (heap s0) old_nxt l_rem' /\
+                      BindsTo n_node (encode nd) (store s) /\
+                      BindsTo n_idx  (encode k_rem) (store s) /\
+                      0 < k_rem /\ Nat.le k_rem k /\
+                      l_rem' = List.skipn (k - (k_rem - 1)) l).
+                ** intro old_nxt.
+                   eapply sep_bind_rule with
+                     (Q := fun (_ : unit) s =>
+                       heap s = heap s0 /\
+                       exists (l_rem' : list memval) (k_rem : nat),
+                         llist_reach (heap s0) old_nxt l_rem' /\
+                         BindsTo n_node (encode old_nxt) (store s) /\
+                         BindsTo n_idx  (encode k_rem) (store s) /\
+                         0 < k_rem /\ Nat.le k_rem k /\
+                         l_rem' = List.skipn (k - (k_rem - 1)) l).
+                   --- intro.
+                       eapply sep_bind_rule with
+                         (Q := fun (i : nat) s =>
+                           heap s = heap s0 /\
+                           exists (l_rem' : list memval),
+                             llist_reach (heap s0) old_nxt l_rem' /\
+                             BindsTo n_node (encode old_nxt) (store s) /\
+                             BindsTo n_idx  (encode i) (store s) /\
+                             0 < i /\ Nat.le i k /\
+                             l_rem' = List.skipn (k - (i - 1)) l).
+                       +++ intro i.
+                           eapply sep_weaken.
+                           *** apply sep_write_var_triple.
+                           *** intros s [Hheap [l_rem' [Hreach [Hbn_s [Hbi_s [Hi_pos [Hi_le Hlrem']]]]]]].
+                               exists (encode i). split. exact Hbi_s.
+                               destruct l_rem' as [ | vh' l_rest].
+                               { cbn in Hreach. subst old_nxt.
+                                 exists false. unfold Iw.
+                                 split. exact Hheap.
+                                 exists Pointer.NULL, (@nil memval), (i - 1).
+                                 split. cbn. reflexivity.
+                                 split.
+                                 { apply Store.Facts.mutate_unchecked_spec_lr.
+                                   exact Hn_ne. exact Hbn_s. }
+                                 split.
+                                 { apply Store.Facts.mutate_unchecked_spec_ll; reflexivity. }
+                                 split. lia.
+                                 split. exact Hlrem'.
+                                 left. reflexivity. }
+                               { destruct Hreach as [HNN' Hreach_rest].
+                                 destruct (Nat.eq_dec (i - 1) 0) as [Hi1z | Hi1nz].
+                                 - exists false. unfold Iw.
+                                   split. exact Hheap.
+                                   exists old_nxt, (vh' :: l_rest), (i - 1).
+                                   split. exact (conj HNN' Hreach_rest).
+                                   split.
+                                   { apply Store.Facts.mutate_unchecked_spec_lr.
+                                     exact Hn_ne. exact Hbn_s. }
+                                   split.
+                                   { apply Store.Facts.mutate_unchecked_spec_ll; reflexivity. }
+                                   split. lia.
+                                   split. exact Hlrem'.
+                                   right. exact Hi1z.
+                                 - exists true. unfold Iw.
+                                   split. exact Hheap.
+                                   exists old_nxt, (vh' :: l_rest), (i - 1).
+                                   split. exact (conj HNN' Hreach_rest).
+                                   split.
+                                   { apply Store.Facts.mutate_unchecked_spec_lr.
+                                     exact Hn_ne. exact Hbn_s. }
+                                   split.
+                                   { apply Store.Facts.mutate_unchecked_spec_ll; reflexivity. }
+                                   split. lia.
+                                   split. exact Hlrem'.
+                                   cbn. split. exact HNN'. lia. }
+                       +++ eapply sep_weaken.
+                           *** apply sep_read_var_triple.
+                           *** intros s [Hheap [l_rem' [k_rem [Hreach [Hbn_s [Hbi_s [Hk_pos [Hle Hlrem']]]]]]]].
+                               exists k_rem. split. exact Hbi_s.
+                               split. exact Hheap.
+                               exists l_rem'.
+                               exact (conj Hreach (conj Hbn_s (conj Hbi_s (conj Hk_pos (conj Hle Hlrem'))))).
+                   --- eapply sep_weaken.
+                       +++ apply sep_write_var_triple.
+                       +++ intros s [Hheap [l_rem' [k_rem [Hreach [Hbn_s [Hbi_s [Hk_pos [Hle Hlrem']]]]]]]].
+                           exists (encode nd). split. exact Hbn_s.
+                           split. exact Hheap.
+                           exists l_rem', k_rem.
+                           split. exact Hreach.
+                           split. apply Store.Facts.mutate_unchecked_spec_ll; reflexivity.
+                           split. apply Store.Facts.mutate_unchecked_spec_lr.
+                           { intro H; exact (Hn_ne (eq_sym H)). }
+                           exact Hbi_s.
+                           exact (conj Hk_pos (conj Hle Hlrem')).
+                ** eapply sep_weaken.
+                   --- apply sep_read_ptr_triple.
+                   --- intros s [Hheap [l_rem' [k_rem [old_nxt [Hshift [Hlookup [Hreach [Hbn_s [Hbi_s [Hk_pos [Hle Hlrem']]]]]]]]]]].
+                       exists old_nxt. split. rewrite Hheap. exact Hlookup.
+                       split. exact Hheap.
+                       exists l_rem', k_rem.
+                       exact (conj Hreach (conj Hbn_s (conj Hbi_s (conj Hk_pos (conj Hle Hlrem'))))).
+             ++ eapply sep_weaken.
+                ** apply sep_shift_fw_ptr_triple.
+                ** intros s [Hheap [l_rem [k_rem [Hreach [Hbn_s [Hbi_s [Hle [Hlrem [HNN Hk_pos]]]]]]]]].
+                   destruct l_rem as [ | vh l_rem'].
+                   { cbn in Hreach. subst nd. exfalso. exact (HNN eq_refl). }
+                   destruct Hreach as
+                       [_ [HWV [_ [_ [addr [np_nd [nxt_nd [_ [Hshift [HWVnp [HRdnp [HWrite_nd [Hlookup Htail]]]]]]]]]]]]].
+                   split. rewrite Hheap. exact HWV.
+                   exists np_nd. split. exact Hshift.
+                   split. rewrite Hheap. exact HWVnp.
+                   split. exact Hheap.
+                   exists l_rem', k_rem, nxt_nd.
+                   split. exact Hshift.
+                   split. exact Hlookup.
+                   split. exact Htail.
+                   split. exact Hbn_s.
+                   split. exact Hbi_s.
+                   split. exact Hk_pos.
+                   split. exact Hle.
+                   replace (k - (k_rem - 1)) with (1 + (k - k_rem)) by lia.
+                   rewrite <- (List.skipn_skipn 1 (k - k_rem)).
+                   rewrite <- Hlrem.
+                   reflexivity.
+          -- eapply sep_weaken.
+             ++ apply sep_read_var_triple.
+             ++ intros s [Hheap [curr [l_rem [k_rem [Hreach [Hbn_s [Hbi_s [Hle [Hlrem [HNN Hk_pos]]]]]]]]]].
+                exists curr. split. exact Hbn_s.
+                split. exact Hheap.
+                exists l_rem, k_rem.
+                exact (conj Hreach (conj Hbn_s (conj Hbi_s (conj Hle (conj Hlrem (conj HNN Hk_pos)))))).
+      + intros s ->.
+        destruct l as [ | vh l'].
+        { cbn in Hreach0. subst ptr.
+          exists false. unfold Iw. split. cbn. reflexivity.
+          exists Pointer.NULL, (@nil memval), k.
+          split. cbn. reflexivity.
+          split. exact Hbn2.
+          split. exact Hbi2.
+          split. lia.
+          split. rewrite Nat.sub_diag. reflexivity.
+          left. reflexivity. }
+        { pose proof (proj1 Hreach0) as HNN.
+          destruct (Nat.eq_dec k 0) as [-> | Hkpos].
+          - exists false. unfold Iw. split. cbn. reflexivity.
+            exists ptr, (vh :: l'), 0.
+            split. exact Hreach0.
+            split. exact Hbn2.
+            split. exact Hbi2.
+            split. lia.
+            split. rewrite Nat.sub_0_r. reflexivity.
+            cbn. right. reflexivity.
+          - exists true. unfold Iw. split. cbn. reflexivity.
+            exists ptr, (vh :: l'), k.
+            split. exact Hreach0.
+            split. exact Hbn2.
+            split. exact Hbi2.
+            split. lia.
+            split. rewrite Nat.sub_diag. reflexivity.
+            cbn. split. exact HNN. lia. }
+  Qed.
 
   Definition reverse (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
     do var (node: Pointer.t) <- ptr;
