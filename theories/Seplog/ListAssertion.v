@@ -680,3 +680,149 @@ Proof.
              {| store := store s; heap := heap sTL |} eq_refl H_tl).
 Qed.
 
+Lemma mutate_frame {Hp: Heap}: forall (h_cr h_sub h h'_sub: Hp) (p: Pointer.t) (v: memval),
+  h_cr $+ h_sub = Some h ->
+  Heap.mutate h_sub p v = Some h'_sub ->
+  exists h', h_cr $+ h'_sub = Some h' /\ Heap.mutate h p v = Some h'.
+Proof.
+  intros h_cr h_sub h h'_sub p v H_cr_sub H_mut_sub.
+  destruct (proj2 (Heap.mutate_some h_sub p v) (ex_intro _ h'_sub H_mut_sub))
+    as (addr & H_ref & H_allow & v_old & H_sub_np).
+  destruct H_sub_np as (m_sub & H_m_sub).
+  assert (H_sub_new : addr |-> v $+ m_sub = Some h'_sub).
+  { exact (Heap.mutate_mem h_sub p v h'_sub addr v_old m_sub H_mut_sub H_ref H_m_sub). }
+  assert (H_sub_full : addr |-> v_old $<= h).
+  { exact (substate_tran _ _ _ (substate_of_partition_l H_m_sub) (substate_of_partition_r H_cr_sub)). }
+  destruct H_sub_full as (m_full & H_m_full).
+  destruct (proj1 (Heap.mutate_some h p v)
+    (ex_intro _ addr (conj H_ref (conj H_allow (ex_intro _ v_old (substate_of_partition_l H_m_full))))))
+    as (h' & H_mut_h).
+  assert (H_full_new : addr |-> v $+ m_full = Some h').
+  { exact (Heap.mutate_mem h p v h' addr v_old m_full H_mut_h H_ref H_m_full). }
+  assert (H_cr_m_sub : h_cr $+ m_sub = Some m_full).
+  { specialize (op_assc h_cr (addr |-> v_old) m_sub) as Hassoc.
+    unfold Basics.flip in Hassoc.
+    rewrite H_m_sub in Hassoc. cbn in Hassoc.
+    rewrite H_cr_sub in Hassoc.
+    rewrite (op_comm h_cr (addr |-> v_old)) in Hassoc.
+    specialize (op_assc (addr |-> v_old) h_cr m_sub) as Hassoc2.
+    unfold Basics.flip in Hassoc2.
+    rewrite Hassoc2 in Hassoc.
+    case_eq (h_cr $+ m_sub).
+    - intros m_full_n E_cr_sub. rewrite E_cr_sub in Hassoc. cbn in Hassoc.
+      pose proof (canc_mem _ _ _ _ H_m_full Hassoc) as Hmf_eq.
+      symmetry in Hmf_eq. subst m_full_n. reflexivity.
+    - intro E_cr_sub. rewrite E_cr_sub in Hassoc. cbn in Hassoc. discriminate. }
+  exists h'. refine (conj _ H_mut_h).
+  specialize (op_assc h_cr (addr |-> v) m_sub) as Hassoc3.
+  unfold Basics.flip in Hassoc3.
+  rewrite H_sub_new in Hassoc3. cbn in Hassoc3.
+  specialize (op_assc (addr |-> v) h_cr m_sub) as Hassoc4.
+  unfold Basics.flip in Hassoc4.
+  rewrite H_cr_m_sub in Hassoc4. cbn in Hassoc4.
+  rewrite (op_comm h_cr (addr |-> v)) in Hassoc3.
+  rewrite Hassoc4 in Hassoc3.
+  rewrite H_full_new in Hassoc3.
+  exact (eq_sym Hassoc3).
+Qed.
+
+Lemma llist_extend {St Hp}:
+  forall (p q: Pointer.t) (la lb: list memval)
+         (s: State St Hp),
+  la <> [] ->
+  (llist p la ** llist q lb) s ->
+  exists (nd np: Pointer.t) (h': Hp),
+    Pointer.shift_fw nd 1%N = Some np /\
+    Heap.mutate (heap s) np (encode q) = Some h' /\
+    llist p (la ++ lb) {| store := store s; heap := h' |}.
+Proof.
+  intro p. intro q. intro la.
+  revert p.
+  induction la as [ | v la_tl IH_tl].
+  - intros p lb s Hne _. exact (False_rect _ (Hne eq_refl)).
+  - intros p lb s _ H_star.
+    destruct la_tl as [ | v_n la_r].
+    + assert (H_lookup_shift :
+        exists np, Pointer.shift_fw p 1%N = Some np /\
+                   Heap.lookup (heap s) np = Some (encode Pointer.NULL)).
+      { destruct H_star as (sa & sb & _ & _ & H_ab & H_a & _).
+        pose proof (llist_tl p v [] sa H_a) as Htl.
+        destruct Htl as (np & p0 & H_shift & H_lk & Hreach).
+        cbn in Hreach. subst p0.
+        exact (ex_intro _ np (conj H_shift
+          (lookup_mono _ _ _ _ (substate_of_partition_l H_ab) H_lk))). }
+      destruct H_lookup_shift as (np & H_shift & H_lookup).
+      destruct (llist_star_mutate p q Pointer.NULL v [] lb np s H_star H_shift H_lookup)
+        as (h' & H_mut & H_res).
+      destruct H_res as (sa' & sb' & _ & _ & H_ab' & H_a' & H_b').
+      cbn in H_b'. destruct H_b' as (_ & Hempty).
+      rewrite Hempty, op_id_r in H_ab'. injection H_ab' as Heq.
+      exists p, np, h'.
+      refine (conj H_shift (conj H_mut _)).
+      exact (llist_indep_regs p (v :: lb) sa'
+               {| store := store s; heap := h' |} Heq H_a').
+    + assert (Hne_tl : v_n :: la_r <> []) by discriminate.
+      destruct H_star as (sa & sb & _ & _ & H_ab & Hlla & Hllb).
+      cbn in Hlla.
+      destruct Hlla as (sLift & sRest & _ & _ & H_lr & HliftA & HexistB).
+      cbn in HliftA.
+      destruct HliftA as [[HNN [HRead [np_p [H_shift_p [HReadNP HWriteNP]]]]] H_eLift].
+      rewrite H_eLift, op_id_l in H_lr. injection H_lr as H_restH.
+      destruct HexistB as (addr & p' & sCR & sTL & _ & _ & H_cr_tl & HliftC & HtailD).
+      rewrite H_restH in H_cr_tl.
+      destruct HliftC as (sE & sF & _ & _ & H_ef & HrefE & HtwoF).
+      cbn in HrefE. destruct HrefE as [H_ref_nd H_eRef].
+      rewrite H_eRef, op_id_l in H_ef. injection H_ef as H_fH.
+      assert (H_hCR : heap sCR = of_list addr [v; VPtr p'])
+        by (unfold Two in HtwoF; congruence).
+      assert (H_h_sub : exists h_sub,
+        heap sTL $+ heap sb = Some h_sub /\
+        heap sCR $+ h_sub = Some (heap s)).
+      { specialize (op_assc (heap sCR) (heap sTL) (heap sb)) as Hassoc.
+        unfold Basics.flip in Hassoc.
+        rewrite H_cr_tl in Hassoc. cbn in Hassoc.
+        rewrite H_ab in Hassoc.
+        case_eq (heap sTL $+ heap sb).
+        - intros h_sub E_sub. rewrite E_sub in Hassoc. cbn in Hassoc.
+          exact (ex_intro _ h_sub (conj eq_refl (eq_sym Hassoc))).
+        - intro E_sub. rewrite E_sub in Hassoc. cbn in Hassoc. discriminate. }
+      destruct H_h_sub as (h_sub & H_sub_eq & H_cr_sub).
+      assert (H_star_sub : (llist p' (v_n :: la_r) ** llist q lb)
+                             {| store := store s; heap := h_sub |}).
+      { exists {| store := store s; heap := heap sTL |},
+               {| store := store s; heap := heap sb |}.
+        cbn. split. reflexivity. split. reflexivity. split. exact H_sub_eq.
+        split.
+        - exact (llist_indep_regs p' (v_n :: la_r) sTL
+                   {| store := store s; heap := heap sTL |} eq_refl HtailD).
+        - exact (llist_indep_regs q lb sb
+                   {| store := store s; heap := heap sb |} eq_refl Hllb). }
+      destruct (IH_tl p' lb {| store := store s; heap := h_sub |}
+                  Hne_tl H_star_sub)
+        as (nd & np & h'_sub & H_shift_nd & H_mut_sub & H_ext_sub).
+      destruct (mutate_frame (heap sCR) h_sub (heap s) h'_sub np (encode q)
+                  H_cr_sub H_mut_sub)
+        as (h' & H_cr_h'_sub & H_mut_full).
+      exists nd, np, h'.
+      refine (conj H_shift_nd (conj H_mut_full _)).
+      cbn.
+      exists {| store := store s; heap := $0 |},
+             {| store := store s; heap := h' |}.
+      cbn. split. reflexivity. split. reflexivity. split. apply op_id_l.
+      split.
+      { exact (conj (conj HNN (conj HRead
+          (ex_intro _ np_p (conj H_shift_p (conj HReadNP HWriteNP))))) eq_refl). }
+      exists addr, p'.
+      exists {| store := store s; heap := heap sCR |},
+             {| store := store s; heap := h'_sub |}.
+      cbn. split. reflexivity. split. reflexivity. split. exact H_cr_h'_sub.
+      split.
+      { exists {| store := store s; heap := $0 |},
+               {| store := store s; heap := heap sCR |}.
+        cbn. split. reflexivity. split. reflexivity. split. apply op_id_l.
+        split.
+        - exact (conj H_ref_nd eq_refl).
+        - unfold Two. exact H_hCR. }
+      exact H_ext_sub.
+Qed.
+
