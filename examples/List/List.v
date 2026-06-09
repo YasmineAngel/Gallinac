@@ -35,10 +35,10 @@ Module List.
   Proof.
     unfold length.
     eapply sep_with_var_triple.
-    intros s_init n_node st1 [-> Hllist] Hpush_node.
-    pose proof (push_spec2 _ _ _ _ HWF Hpush_node) as Hbn1.
-    pose proof (push_wf _ _ _ _ HWF Hpush_node) as HWF1.
-    pose proof (llist_reach_of_llist ptr l s0 Hllist) as Hreach0.
+    intros s_init n_node st1 [HP Hllist] Hpush_node.
+    pose proof (push_spec2 _ _ _ _ (HWF s_init HP) Hpush_node) as Hbn1.
+    pose proof (push_wf _ _ _ _ (HWF s_init HP) Hpush_node) as HWF1.
+    pose proof (llist_reach_of_llist ptr l s_init Hllist) as Hreach0.
     eapply sep_with_var_triple.
     intros s1 n_count st2 -> Hpush_count.
     pose proof (push_spec2 _ _ _ _ HWF1 Hpush_count) as Hbc2.
@@ -47,9 +47,9 @@ Module List.
     assert (Hn_ne : n_node <> n_count) by
       (intro Heq; subst; exact (Hfresh _ Hbn1)).
     pose (Iw := fun (b : bool) (s : State ListStore list_heap_carrier) =>
-      heap s = heap s0 /\
+      heap s = heap s_init /\
       exists (curr : Pointer.t) (l_rem : list memval) (k : N.t),
-        llist_reach (heap s0) curr l_rem /\
+        llist_reach (heap s_init) curr l_rem /\
         BindsTo n_node (encode curr) (store s) /\
         BindsTo n_count (encode k) (store s) /\
         (k + N.of_nat (Datatypes.length l_rem))%N = N.of_nat (Datatypes.length l) /\
@@ -67,14 +67,14 @@ Module List.
           (fun H => Hn_ne (eq_sym H)) Hbc_s Hbn_s) as [t1 [t2 [Hp1 Hp2]]].
         exists t1. split. exact Hp1.
         exists t2. split. exact Hp2.
-        exact (conj Hinv Hheap).
+        exact (conj Hinv (llist_indep_regs ptr l s_init {|store := t2; heap := heap s|} (eq_sym Hheap) Hllist)).
     - eapply sep_weaken.
       + apply sep_while_rule with (I := Iw).
         * eapply sep_bind_rule with
             (Q := fun cv s =>
-              heap s = heap s0 /\
+              heap s = heap s_init /\
               exists (lr : list memval) (k : N.t),
-                llist_reach (heap s0) cv lr /\
+                llist_reach (heap s_init) cv lr /\
                 BindsTo n_node (encode cv) (store s) /\
                 BindsTo n_count (encode k) (store s) /\
                 (k + N.of_nat (Datatypes.length lr))%N = N.of_nat (Datatypes.length l)).
@@ -82,7 +82,7 @@ Module List.
              eapply sep_bind_rule with (Q := fun c s => Iw (negb c) s).
              ++ intro c. apply sep_ret_triple.
              ++ eapply sep_weaken.
-                ** apply sep_eq_ptr_triple.
+                ** apply sep_eq_ptr_triple_cmp.
                 ** intros s [Hheap [lr [k [Hreach_cv [Hbn_s [Hbc_s Hinv]]]]]].
                    destruct lr as [ | vh lr'].
                    --- cbn in Hreach_cv; subst cv.
@@ -138,47 +138,47 @@ Module List.
                 split. exact Hheap.
                 exact (ex_intro _ lr (ex_intro _ k
                   (conj Hreach_s (conj Hbn_s (conj Hbc_s Hinv))))).
-        * eapply sep_bind_rule with (Q := fun nd s => heap s = heap s0 /\
+        * eapply sep_bind_rule with (Q := fun nd s => heap s = heap s_init /\
               exists (lr' : list memval) (vh : memval) (k : N.t),
-                llist_reach (heap s0) nd (vh :: lr') /\
+                llist_reach (heap s_init) nd (vh :: lr') /\
                 BindsTo n_node (encode nd) (store s) /\
                 BindsTo n_count (encode k) (store s) /\
                 (k + N.of_nat (S (Datatypes.length lr')))%N = N.of_nat (Datatypes.length l)).
           -- intro nd.
              eapply sep_bind_rule with
                (Q := fun np s =>
-                 heap s = heap s0 /\
+                 heap s = heap s_init /\
                  exists (lr' : list memval) (k : N.t) (next_v : Pointer.t),
                    Pointer.shift_fw nd 1%N = Some np /\
-                   Heap.lookup (heap s0) np = Some (encode next_v) /\
-                   llist_reach (heap s0) next_v lr' /\
+                   Heap.lookup (heap s_init) np = Some (encode next_v) /\
+                   llist_reach (heap s_init) next_v lr' /\
                    BindsTo n_node (encode nd) (store s) /\
                    BindsTo n_count (encode k) (store s) /\
                    (k + N.of_nat (S (Datatypes.length lr')))%N = N.of_nat (Datatypes.length l)).
              ++ intro np.
                 eapply sep_bind_rule with
                   (Q := fun nxt s =>
-                    heap s = heap s0 /\
+                    heap s = heap s_init /\
                     exists (lr' : list memval) (k : N.t),
-                      llist_reach (heap s0) nxt lr' /\
+                      llist_reach (heap s_init) nxt lr' /\
                       BindsTo n_node (encode nd) (store s) /\
                       BindsTo n_count (encode k) (store s) /\
                       (k + N.of_nat (S (Datatypes.length lr')))%N = N.of_nat (Datatypes.length l)).
                 ** intro nxt.
                    eapply sep_bind_rule with
                      (Q := fun _ s =>
-                       heap s = heap s0 /\
+                       heap s = heap s_init /\
                        exists (lr' : list memval) (k : N.t),
-                         llist_reach (heap s0) nxt lr' /\
+                         llist_reach (heap s_init) nxt lr' /\
                          BindsTo n_node (encode nxt) (store s) /\
                          BindsTo n_count (encode k) (store s) /\
                          (k + N.of_nat (S (Datatypes.length lr')))%N = N.of_nat (Datatypes.length l)).
                    --- intro .
                        eapply sep_bind_rule with
                          (Q := fun (c : N.t) s =>
-                           heap s = heap s0 /\
+                           heap s = heap s_init /\
                            exists (lr' : list memval),
-                             llist_reach (heap s0) nxt lr' /\
+                             llist_reach (heap s_init) nxt lr' /\
                              BindsTo n_node (encode nxt) (store s) /\
                              BindsTo n_count (encode c) (store s) /\
                              (c + N.of_nat (S (Datatypes.length lr')))%N = N.of_nat (Datatypes.length l)).
@@ -344,135 +344,132 @@ Lemma cons_spec [MS: MemStorable] (ptr: Pointer.t) (n_ofst d_ofst: N.t) (v: MS)
     cons ptr n_ofst d_ofst v
   {{ Q }}.
 
- Proof.
+  Proof.
     unfold cons.
     eapply sep_bind_rule with
       (Q := fun new_node s1 =>
-        store s1 = store s0 /\
-        exists ha,
-          Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+        exists h0 ha,
+          Heap.alloc h0 2 (encode Pointer.NULL) = Some (ha, new_node) /\
           heap s1 = ha /\
           Facts.WValid (heap s1) new_node /\
-          (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst).
+          (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst /\
+          (forall dp np hm1 hf,
+            Pointer.shift_fw new_node d_ofst = Some dp ->
+            list_heap_mutate ha dp (encode v) = Some hm1 ->
+            Pointer.shift_fw new_node n_ofst = Some np ->
+            list_heap_mutate hm1 np (StorablePtr.ptr_encode ptr) = Some hf ->
+            Q new_node {|store := store s1; heap := hf|})).
     - intro new_node.
       eapply sep_bind_rule with
         (Q := fun data_ptr s2 =>
-          store s2 = store s0 /\
-          exists ha,
-            Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+          exists h0 ha,
+            Heap.alloc h0 2 (encode Pointer.NULL) = Some (ha, new_node) /\
             heap s2 = ha /\
             Facts.WValid (heap s2) new_node /\
             Pointer.shift_fw new_node d_ofst = Some data_ptr /\
-            (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst).
+            (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst /\
+            (forall np hm1 hf,
+              list_heap_mutate ha data_ptr (encode v) = Some hm1 ->
+              Pointer.shift_fw new_node n_ofst = Some np ->
+              list_heap_mutate hm1 np (StorablePtr.ptr_encode ptr) = Some hf ->
+              Q new_node {|store := store s2; heap := hf|})).
       + intro data_ptr.
         eapply sep_seq_rule with
           (Q := fun s3 =>
-            store s3 = store s0 /\
-            exists ha,
-              Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+            exists h0 ha hm1,
+              Heap.alloc h0 2 (encode Pointer.NULL) = Some (ha, new_node) /\
               Pointer.shift_fw new_node d_ofst = Some data_ptr /\
-              Heap.mutate ha data_ptr (encode v) = Some (heap s3) /\
+              Heap.mutate ha data_ptr (encode v) = Some hm1 /\
+              heap s3 = hm1 /\
               Facts.WValid (heap s3) new_node /\
-              (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst).
+              (d_ofst < 2)%N /\ (n_ofst < 2)%N /\ d_ofst <> n_ofst /\
+              (forall np hf,
+                Pointer.shift_fw new_node n_ofst = Some np ->
+                list_heap_mutate hm1 np (StorablePtr.ptr_encode ptr) = Some hf ->
+                Q new_node {|store := store s3; heap := hf|})).
         * eapply sep_bind_rule with
             (Q := fun next_ptr s4 =>
-              store s4 = store s0 /\
-              exists ha,
-                Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
+              exists h0 ha hm1,
+                Heap.alloc h0 2 (encode Pointer.NULL) = Some (ha, new_node) /\
                 Pointer.shift_fw new_node d_ofst = Some data_ptr /\
-                Heap.mutate ha data_ptr (encode v) = Some (heap s4) /\
+                Heap.mutate ha data_ptr (encode v) = Some hm1 /\
+                heap s4 = hm1 /\
                 Pointer.shift_fw new_node n_ofst = Some next_ptr /\
-                (d_ofst < 2)%N /\ (n_ofst < 2)%N).
+                (d_ofst < 2)%N /\ (n_ofst < 2)%N /\
+                (forall hf,
+                  list_heap_mutate hm1 next_ptr (StorablePtr.ptr_encode ptr) = Some hf ->
+                  Q new_node {|store := store s4; heap := hf|})).
           -- intro next_ptr.
-             eapply sep_seq_rule with
-               (Q := fun s5 =>
-                 store s5 = store s0 /\
-                 heap s5 <> heap s0 /\
-                 exists ha hm,
-                   Heap.alloc (heap s0) 2 (encode Pointer.NULL) = Some (ha, new_node) /\
-                   Pointer.shift_fw new_node d_ofst = Some data_ptr /\
-                   Heap.mutate ha data_ptr (encode v) = Some hm /\
-                   Pointer.shift_fw new_node n_ofst = Some next_ptr /\
-                   Heap.mutate hm next_ptr (encode ptr) = Some (heap s5)).
-             ++ eapply sep_weaken.
-                ** apply sep_ret_triple.
-                ** intros s [Hst [Hne [ha [hm [HA [HD [HM1 [HN HM2]]]]]]]].
-                   refine (conj Hst (conj _ (ex_intro _ ha (ex_intro _ data_ptr
-                     (ex_intro _ next_ptr (ex_intro _ hm _)))))).
-                   { intro Heq; apply Hne; exact (f_equal heap Heq). }
-                   exact (conj HA (conj HD (conj HM1 (conj HN HM2)))).
+             eapply sep_seq_rule with (Q := fun s5 => Q new_node s5).
+             ++ apply sep_ret_triple.
              ++ eapply sep_weaken.
                 ** apply sep_write_ptr_triple.
-                ** intros s [Hst [ha [HA [HD [HM1 [HN [Hd Hn]]]]]]].
+                ** intros s [h0 [ha [hm1 [HA [HD [HM1 [Heq [HN [Hd [Hn HQpart]]]]]]]]]].
                    destruct (alloc_mutate_mutate_succeeds_gen
-                     (heap s0) 2 (encode Pointer.NULL)
-                     ha new_node d_ofst data_ptr n_ofst next_ptr
-                     (heap s) (encode v) (encode ptr)
+                     h0 2 (encode Pointer.NULL) ha new_node
+                     d_ofst data_ptr n_ofst next_ptr hm1
+                     (encode v) (encode ptr)
                      HA Hd HD HM1 Hn HN) as [lh2 HM2].
-                   exists lh2. split. exact HM2.
-                   split. exact Hst.
-                   split.
-                   { exact (alloc_heap_neq_orig_gen
-                       (heap s0) 2 _ ha new_node data_ptr next_ptr
-                       (heap s) lh2 (encode v) (encode ptr) HA HM1 HM2). }
-                   exists ha, (heap s).
-                   exact (conj HA (conj HD (conj HM1 (conj HN HM2)))).
+                   exists lh2. split.
+                   { rewrite Heq. exact HM2. }
+                   exact (HQpart lh2 HM2).
           -- eapply sep_weaken.
-             ** apply sep_shift_fw_ptr_triple.
-             ** intros s [Hst [ha [HA [HD [HM1 [HWV [Hd [Hn _]]]]]]]].
-                split. exact HWV.
+             ++ apply sep_shift_fw_ptr_triple.
+             ++ intros s [h0 [ha [hm1 [HA [HD [HM1 [Heq [HWV [Hd [Hn [Hdiff HQpart]]]]]]]]]]].
+                split. { exact HWV. }
                 destruct (alloc_shift_fw_succeeds_gen
-                  (heap s0) 2 (encode Pointer.NULL) ha new_node n_ofst HA Hn) as [np HN].
-                exists np. split. exact HN.
+                  h0 2 (encode Pointer.NULL) ha new_node n_ofst HA Hn) as [np HN].
+                exists np. split. { exact HN. }
                 split.
-                { exact (alloc_shift_wvalid_after_mut_gen
-                    (heap s0) 2 (encode Pointer.NULL)
-                    ha new_node n_ofst np (heap s)
+                { rewrite Heq.
+                  exact (alloc_shift_wvalid_after_mut_gen
+                    h0 2 (encode Pointer.NULL)
+                    ha new_node n_ofst np hm1
                     data_ptr (encode v) HA Hn HN HM1). }
-                exact (conj Hst (ex_intro _ ha
-                  (conj HA (conj HD (conj HM1 (conj HN (conj Hd Hn))))))).
+                exists h0, ha, hm1.
+                refine (conj HA (conj HD (conj HM1 (conj Heq (conj HN (conj Hd (conj Hn _))))))).
+                intros hf HM2.
+                exact (HQpart np hf HN HM2).
         * eapply sep_weaken.
           -- apply sep_write_ptr_triple.
-          -- intros s_wr [Hst_wr [ha_wr [HA_wr [Heq_wr [HWV_wr [HD_wr [Hd_wr [Hn_wr Hdiff_wr]]]]]]]].
+          -- intros s [h0 [ha [HA [Heq [HWV [HD [Hd [Hn [Hdiff HQpart]]]]]]]]].
              destruct (alloc_mutate_succeeds_gen
-               (heap s0) 2 (encode Pointer.NULL) ha_wr new_node d_ofst data_ptr (encode v)
-               HA_wr Hd_wr HD_wr) as [lh_mut HM1_mut].
-             exists lh_mut. split.
-             { rewrite Heq_wr. exact HM1_mut. }
-             split.
-             { exact Hst_wr. }
-             exists ha_wr.
-             refine (conj HA_wr (conj HD_wr (conj HM1_mut (conj _ _)))).
-             ++ eapply alloc_wvalid_after_mut_gen; eauto. reflexivity.
-             ++ exact (conj Hd_wr (conj Hn_wr Hdiff_wr)).
+               h0 2 (encode Pointer.NULL) ha new_node d_ofst data_ptr (encode v)
+               HA Hd HD) as [hm1 HM1].
+             exists hm1. split.
+             { rewrite Heq. exact HM1. }
+             exists h0, ha, hm1.
+             refine (conj HA (conj HD (conj HM1 (conj eq_refl (conj _ (conj Hd (conj Hn (conj Hdiff _)))))))).
+             ++ eapply alloc_wvalid_after_mut_gen; [exact HA | reflexivity | exact HM1].
+             ++ intros np hf HN HM2.
+                exact (HQpart np hm1 hf HM1 HN HM2).
       + eapply sep_weaken.
         * apply sep_shift_fw_ptr_triple.
-        * intros s [Hst [ha [HA [Heq [HWV [Hd [Hn Hdiff]]]]]]].
-          split. exact HWV.
+        * intros s [h0 [ha [HA [Heq [HWV [Hd [Hn [Hdiff HQpart]]]]]]]].
+          split. { exact HWV. }
           destruct (alloc_shift_fw_succeeds_gen
-            (heap s0) 2 (encode Pointer.NULL) ha new_node d_ofst HA Hd) as [dp Hsd].
-          exists dp. split. exact Hsd.
+            h0 2 (encode Pointer.NULL) ha new_node d_ofst HA Hd) as [dp Hsd].
+          exists dp. split. { exact Hsd. }
           split.
           { rewrite Heq.
-            exact (alloc_shift_wvalid_gen
-                     (heap s0) 2 (encode Pointer.NULL) ha new_node d_ofst dp HA Hd Hsd). }
-          exact (conj Hst (ex_intro _ ha
-            (conj HA (conj Heq (conj HWV (conj Hsd (conj Hd (conj Hn Hdiff)))))))).
+            exact (alloc_shift_wvalid_gen h0 2 (encode Pointer.NULL) ha new_node d_ofst dp HA Hd Hsd). }
+          exists h0, ha.
+          refine (conj HA (conj Heq (conj HWV (conj Hsd (conj Hd (conj Hn (conj Hdiff _))))))).
+          intros np hm1 hf HM1 HN HM2.
+          exact (HQpart dp np hm1 hf Hsd HM1 HN HM2).
     - eapply sep_weaken.
       + apply sep_alloc_ptr_triple.
-      + intros s [Heqs [_ [Hdiff [Hd [Hn [bid Hbid]]]]]].
-        subst s.
+      + intros s (Hvalid & Hdiff & Hd & Hn & [bid Hbid] & HQ).
         split.
-        * destruct (heap s0) as [mbs b] eqn:Hh; destruct b.
+        * destruct (heap s) as [mbs b] eqn:Hh; destruct b.
           { eexists _, _; cbn; reflexivity. }
           { cbn in Hbid; discriminate. }
-        * intros hp new_node_p HA_p.
-          split. { reflexivity. }
-          exists hp.
-          refine (conj HA_p (conj eq_refl (conj _ _))).
-          -- eapply alloc_wvalid_gen with (v := encode Pointer.NULL); eauto.
-             reflexivity.
-          -- exact (conj Hd (conj Hn Hdiff)).
+        * intros ha new_node_p HA_p.
+          exists (heap s), ha.
+          refine (conj HA_p (conj eq_refl (conj _ (conj Hd (conj Hn (conj Hdiff _)))))).
+          -- eapply alloc_wvalid_gen; [exact HA_p | reflexivity].
+          -- intros dp np hm1 hf HD_p HM1_p HN_p HM2_p.
+             exact (HQ new_node_p ha dp np hm1 hf HA_p HD_p HM1_p HN_p HM2_p).
   Qed.
 
   Definition tl (ptr: Pointer.t) (n_ofst: N.t): program (State ListStore list_heap_carrier) Pointer.t :=
@@ -540,10 +537,10 @@ Qed.
   Proof.
     unfold nth.
     eapply sep_with_var_triple.
-    intros s_init n_node st1 [-> Hllist] Hpush_node.
-    pose proof (push_spec2 _ _ _ _ HWF Hpush_node) as Hbn1.
-    pose proof (push_wf _ _ _ _ HWF Hpush_node) as HWF1.
-    pose proof (llist_reach_of_llist ptr l s0 Hllist) as Hreach0.
+    intros s_init n_node st1 [HP Hllist] Hpush_node.
+    pose proof (push_spec2 _ _ _ _ (HWF s_init HP) Hpush_node) as Hbn1.
+    pose proof (push_wf _ _ _ _ (HWF s_init HP) Hpush_node) as HWF1.
+    pose proof (llist_reach_of_llist ptr l s_init Hllist) as Hreach0.
     eapply sep_with_var_triple.
     intros s1 n_idx st2 -> Hpush_idx.
     pose proof (push_spec2 _ _ _ _ HWF1 Hpush_idx) as Hbi2.
@@ -553,9 +550,9 @@ Qed.
     assert (Hn_ne : n_node <> n_idx) by
       (intro Heq; subst; exact (Hfresh _ Hbn1)).
     pose (Iw := fun (b : bool) (s : State ListStore list_heap_carrier) =>
-      heap s = heap s0 /\
+      heap s = heap s_init /\
       exists (curr : Pointer.t) (l_rem : list memval) (k_rem : nat),
-        llist_reach (heap s0) curr l_rem /\
+        llist_reach (heap s_init) curr l_rem /\
         BindsTo n_node (encode curr) (store s) /\
         BindsTo n_idx  (encode k_rem) (store s) /\
         Nat.le k_rem k /\
@@ -577,7 +574,7 @@ Qed.
         destruct Hterm as [Hnull | Hzero].
         * subst curr.
           assert (Hlnil : l_rem = [])
-            by exact (proj1 (llist_reach_null_iff (heap s0) Pointer.NULL l_rem Hreach) eq_refl).
+            by exact (proj1 (llist_reach_null_iff (heap s_init) Pointer.NULL l_rem Hreach) eq_refl).
           subst l_rem.
           assert (Hskipk : List.skipn k l = []).
           { replace k with (k_rem + (k - k_rem)) by lia.
@@ -586,19 +583,19 @@ Qed.
             apply List.skipn_nil. }
           split.
           -- rewrite Hheap, Hskipk. cbn. reflexivity.
-          -- exact Hheap.
+          -- exact (llist_indep_regs ptr l s_init {|store := t2; heap := heap s|} (eq_sym Hheap) Hllist).
         * subst k_rem.
           rewrite Nat.sub_0_r in Hlrem. subst l_rem.
           split.
           -- rewrite Hheap. exact Hreach.
-          -- exact Hheap.
+          -- exact (llist_indep_regs ptr l s_init {|store := t2; heap := heap s|} (eq_sym Hheap) Hllist).
     - eapply sep_weaken.
       + apply sep_while_rule with (I := Iw).
         * eapply sep_bind_rule with
             (Q := fun (cv : Pointer.t) s =>
-              heap s = heap s0 /\
+              heap s = heap s_init /\
               exists (l_rem : list memval) (k_rem : nat),
-                llist_reach (heap s0) cv l_rem /\
+                llist_reach (heap s_init) cv l_rem /\
                 BindsTo n_node (encode cv) (store s) /\
                 BindsTo n_idx  (encode k_rem) (store s) /\
                 Nat.le k_rem k /\
@@ -606,10 +603,10 @@ Qed.
           -- intro cv.
              eapply sep_bind_rule with
                (Q := fun (c : bool) s =>
-                 heap s = heap s0 /\
+                 heap s = heap s_init /\
                  BindsTo n_node (encode cv) (store s) /\
                  exists (l_rem : list memval) (k_rem : nat),
-                   llist_reach (heap s0) cv l_rem /\
+                   llist_reach (heap s_init) cv l_rem /\
                    BindsTo n_idx (encode k_rem) (store s) /\
                    Nat.le k_rem k /\
                    l_rem = List.skipn (k - k_rem) l /\
@@ -635,7 +632,7 @@ Qed.
                            + exact Hcvnn.
                            + apply Nat.lt_0_succ. }
              ++ eapply sep_weaken.
-                ** apply sep_eq_ptr_triple.
+                ** apply sep_eq_ptr_triple_cmp.
                 ** intros s [Hheap [l_rem [k_rem [Hreach [Hbn_s [Hbi_s [Hle Hlrem]]]]]]].
                    destruct l_rem as [ | vh l_rem'].
                    { cbn in Hreach. subst cv.
@@ -686,9 +683,9 @@ Qed.
                   (conj Hreach (conj Hbn_s (conj Hbi_s (conj Hle Hlrem))))))).
         * eapply sep_bind_rule with
             (Q := fun (nd : Pointer.t) s =>
-              heap s = heap s0 /\
+              heap s = heap s_init /\
               exists (l_rem : list memval) (k_rem : nat),
-                llist_reach (heap s0) nd l_rem /\
+                llist_reach (heap s_init) nd l_rem /\
                 BindsTo n_node (encode nd) (store s) /\
                 BindsTo n_idx  (encode k_rem) (store s) /\
                 Nat.le k_rem k /\
@@ -698,11 +695,11 @@ Qed.
           -- intro nd.
              eapply sep_bind_rule with
                (Q := fun (np : Pointer.t) s =>
-                 heap s = heap s0 /\
+                 heap s = heap s_init /\
                  exists (l_rem' : list memval) (k_rem : nat) (old_nxt : Pointer.t),
                    Pointer.shift_fw nd 1%N = Some np /\
-                   Heap.lookup (heap s0) np = Some (encode old_nxt) /\
-                   llist_reach (heap s0) old_nxt l_rem' /\
+                   Heap.lookup (heap s_init) np = Some (encode old_nxt) /\
+                   llist_reach (heap s_init) old_nxt l_rem' /\
                    BindsTo n_node (encode nd) (store s) /\
                    BindsTo n_idx  (encode k_rem) (store s) /\
                    0 < k_rem /\ Nat.le k_rem k /\
@@ -710,9 +707,9 @@ Qed.
              ++ intro np.
                 eapply sep_bind_rule with
                   (Q := fun (old_nxt : Pointer.t) s =>
-                    heap s = heap s0 /\
+                    heap s = heap s_init /\
                     exists (l_rem' : list memval) (k_rem : nat),
-                      llist_reach (heap s0) old_nxt l_rem' /\
+                      llist_reach (heap s_init) old_nxt l_rem' /\
                       BindsTo n_node (encode nd) (store s) /\
                       BindsTo n_idx  (encode k_rem) (store s) /\
                       0 < k_rem /\ Nat.le k_rem k /\
@@ -720,9 +717,9 @@ Qed.
                 ** intro old_nxt.
                    eapply sep_bind_rule with
                      (Q := fun (_ : unit) s =>
-                       heap s = heap s0 /\
+                       heap s = heap s_init /\
                        exists (l_rem' : list memval) (k_rem : nat),
-                         llist_reach (heap s0) old_nxt l_rem' /\
+                         llist_reach (heap s_init) old_nxt l_rem' /\
                          BindsTo n_node (encode old_nxt) (store s) /\
                          BindsTo n_idx  (encode k_rem) (store s) /\
                          0 < k_rem /\ Nat.le k_rem k /\
@@ -730,9 +727,9 @@ Qed.
                    --- intro.
                        eapply sep_bind_rule with
                          (Q := fun (i : nat) s =>
-                           heap s = heap s0 /\
+                           heap s = heap s_init /\
                            exists (l_rem' : list memval),
-                             llist_reach (heap s0) old_nxt l_rem' /\
+                             llist_reach (heap s_init) old_nxt l_rem' /\
                              BindsTo n_node (encode old_nxt) (store s) /\
                              BindsTo n_idx  (encode i) (store s) /\
                              0 < i /\ Nat.le i k /\

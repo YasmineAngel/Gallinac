@@ -155,6 +155,39 @@ Proof.
   rewrite Hex. cbn. exact (HQ hp_ex ptr_ex Hex).
 Qed.
 
+Lemma sep_eq_ptr_triple_cmp
+    {St: Store} {Hp: Heap}
+    (ptr_l ptr_r: Pointer.t)
+    (Q: bool -> Pred (State St Hp)):
+    {{ fun s =>
+         Facts.WValid (heap s) ptr_l /\
+         Facts.WValid (heap s) ptr_r /\
+         Pointer.Allows ptr_l Operation.Cmp /\
+         Pointer.Allows ptr_r Operation.Cmp /\
+         forall b, Pointer.cmp ptr_l ptr_r = Some b -> Q b s }}
+      eq_ptr ptr_l ptr_r
+      {{ Q }}.
+  Proof.
+    intros s (HWValid_l & HWValid_r & HAllows_l & HAllows_r & HQ).
+    unfold eq_ptr, partial_exception_hoare. cbn.
+    destruct (Facts.weakly_valid_spec (heap s) ptr_l) as [Hwv_l | Hnwv_l].
+    2: contradiction.
+    destruct (Pointer.allows_spec ptr_l Operation.Cmp) as [Ha_l | Hna_l].
+    2: contradiction.
+    destruct (Facts.weakly_valid_spec (heap s) ptr_r) as [Hwv_r | Hnwv_r].
+    2: contradiction.
+    destruct (Pointer.allows_spec ptr_r Operation.Cmp) as [Ha_r | Hna_r].
+    2: contradiction.
+    cbn.
+    destruct (Pointer.cmp ptr_l ptr_r) eqn:Ecmp.
+    - cbn. apply HQ. reflexivity.
+    - exfalso.
+      unfold Pointer.cmp in Ecmp.
+      destruct (Pointer.allows_spec ptr_l Operation.Cmp); [ | contradiction ].
+      destruct (Pointer.allows_spec ptr_r Operation.Cmp); [ | contradiction ].
+      discriminate Ecmp.
+  Qed.
+
 Lemma sep_read_var_triple
   {St: Store} {Hp: Heap} {MS: MemStorable}
   (varname: name)
