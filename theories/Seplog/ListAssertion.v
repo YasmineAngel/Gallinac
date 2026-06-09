@@ -383,6 +383,45 @@ Fixpoint llist_reach {Hp: Heap} (h: Hp) (p: Pointer.t) (l: list memval) : Prop :
         llist_reach h p0 l'
   end.
 
+Inductive llist_reach_pivot {Hp: Heap} (h: Hp): Pointer.t -> list memval -> Pointer.t -> Prop :=
+| Pivot_nil: forall p v, 
+    llist_reach h p [v] -> 
+    llist_reach_pivot h p [] p
+| Pivot_cons: forall p v la' nd next p0,
+    p <> Pointer.NULL ->
+    Pointer.shift_fw p 1 = Some next ->
+    Heap.lookup h next = Some (StorablePtr.ptr_encode p0) ->
+    llist_reach_pivot h p0 la' nd ->
+    llist_reach_pivot h p (v :: la') nd.
+
+Lemma llist_reach_last_eq {Hp: Heap}: forall (h : Hp) (la : list memval) (v1 v2 : memval) (nd1 nd2 : Pointer.t),
+    forall p,
+    llist_reach h p (la ++ [v1]) ->
+    llist_reach h p (la ++ [v2]) ->
+    llist_reach_pivot h p la nd1 ->
+    llist_reach_pivot h p la nd2 ->
+    nd1 = nd2.
+Proof.
+  intros h la.
+  induction la as [ | v la' IHla ]; intros v1 v2 nd1 nd2 p Hla1 Hla2 Hnd1 Hnd2.
+  - cbn in Hla1, Hla2.
+    inversion Hnd1; subst.
+    inversion Hnd2; subst.
+    reflexivity.
+  - cbn in Hla1, Hla2.
+    destruct Hla1 as (HNN1 & HWV1 & HCmp1 & HRd1 & a1 & next1 & p0_1 & HRef1 & Hshift1 & HWVnp1 & HRnp1 & HWnp1 & HLk1 & Ht1).
+    destruct Hla2 as (HNN2 & HWV2 & HCmp2 & HRd2 & a2 & next2 & p0_2 & HRef2 & Hshift2 & HWVnp2 & HRnp2 & HWnp2 & HLk2 & Ht2).
+    inversion Hnd1; subst.
+    inversion Hnd2; subst.
+    rewrite Hshift1 in H2. injection H2 as ->.
+    rewrite Hshift1 in H5. injection H5 as ->.
+    rewrite Hshift1 in Hshift2. injection Hshift2 as ->.
+    rewrite HLk1 in H4. injection H4 as ->.
+    rewrite HLk1 in H8. injection H8 as ->.
+    rewrite HLk1 in HLk2. injection HLk2 as ->.
+    eapply IHla; eauto.
+Qed.
+
 Lemma wvalid_mono {Hp: Heap}: forall (h h': Hp) p,
   h $<= h' -> Heap.Facts.WValid h p -> Heap.Facts.WValid h' p.
 Proof.
