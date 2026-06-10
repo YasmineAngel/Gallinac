@@ -1224,7 +1224,494 @@ Qed.
     append l0 l1 (1%N)
   {{ fun res s' => llist res (la ++ lb) s' }}.
 
-  Proof. Admitted.
+  Proof.
+  unfold append.
+  destruct la as [ | v la'].
+  - eapply sep_bind_rule with
+      (Q := fun (is_null : bool) s =>
+        match is_null with
+        | true  => P s /\ llist l1 lb s
+        | false => False
+        end).
+    + intro is_null; destruct is_null.
+      * eapply sep_weaken. apply sep_ret_triple.
+        intros s [_ Hllb]. cbn. exact Hllb.
+      * exact (fun s H => False_rect _ H).
+    + eapply sep_weaken. apply sep_eq_ptr_triple_cmp.
+      intros s [HP Hstar].
+      destruct Hstar as (sa & sb & _ & _ & Hab & Hlla & Hllb).
+      cbn in Hlla. destruct Hlla as [Hl0null Hempty]. subst l0.
+      rewrite Hempty in Hab. rewrite op_id_l in Hab. injection Hab as Hheap_sb.
+      split. right; right; reflexivity.
+      split. right; right; reflexivity.
+      split. exact Pointer.AllowsNull.
+      split. exact Pointer.AllowsNull.
+      intros b Hcmp. cbn in Hcmp. inversion Hcmp; subst.
+      exact (conj HP (llist_indep_regs l1 lb sb s Hheap_sb Hllb)).
+  - eapply sep_bind_rule with
+      (Q := fun (is_null : bool) s =>
+        match is_null with
+        | true  => False
+        | false => P s /\ (llist l0 (v :: la') ** llist l1 lb) s
+        end).
+    + intro is_null; destruct is_null.
+      * exact (fun s H => False_rect _ H).
+      * eapply sep_with_var_triple.
+        intros s_init n_node st1 [HP Hstar] Hpush_node.
+        pose proof (push_spec2 _ _ _ _ (HWF s_init HP) Hpush_node) as Hbn_init.
+        destruct (pop_spec Hpush_node) as [st_pop0 [Hpop_st1 _]].
+        destruct Hstar as (sa & sb & Hst_sa & Hst_sb & Hab & Hlla & Hllb).
+        pose proof (substate_of_partition_l Hab) as Hsub_sa.
+        pose proof (llist_reach_of_llist l0 (v :: la') sa Hlla) as Hreach_sa.
+        pose proof (llist_reach_monotone _ _ l0 (v :: la') Hsub_sa Hreach_sa)
+          as Hreach_init.
+        assert (Hstar_init : (llist l0 (v :: la') ** llist l1 lb) s_init)
+          by (exists sa, sb; cbn; repeat split; assumption).
+        assert (Hne : v :: la' <> []) by discriminate.
+        pose (Iw := fun (b : bool) (s : State ListStore list_heap_carrier) =>
+          heap s = heap s_init /\
+          exists (curr : Pointer.t) (la_pref la_suff : list memval),
+            (v :: la') = la_pref ++ la_suff /\
+            la_suff <> [] /\
+            Store.BindsTo n_node (encode curr) (store s) /\
+            llist_path (heap s_init) l0 la_pref curr /\
+            llist_reach (heap s_init) curr la_suff /\
+            (exists st_pop, Store.pop (store s) = Some st_pop) /\
+            (b = true  -> exists vh vx la_rest, la_suff = vh :: vx :: la_rest) /\
+            (b = false -> exists v_last, la_suff = [v_last])).
+        eapply sep_weaken.
+        -- apply sep_seq_rule with (Q := fun s => Iw false s).
+          ++ eapply sep_bind_rule with
+              (Q := fun (curr : Pointer.t) s =>
+                curr <> Pointer.NULL /\
+                heap s = heap s_init /\
+                exists la_pref v_last,
+                  (v :: la') = la_pref ++ [v_last] /\
+                  Store.BindsTo n_node (encode curr) (store s) /\
+                  llist_path (heap s_init) l0 la_pref curr /\
+                  llist_reach (heap s_init) curr [v_last] /\
+                  exists st_pop, Store.pop (store s) = Some st_pop).
+            ** intro curr.
+               eapply sep_bind_rule with
+                 (Q := fun (np : Pointer.t) s =>
+                   curr <> Pointer.NULL /\
+                   heap s = heap s_init /\
+                   Pointer.shift_fw curr 1%N = Some np /\
+                   exists la_pref v_last,
+                     (v :: la') = la_pref ++ [v_last] /\
+                     llist_path (heap s_init) l0 la_pref curr /\
+                     llist_reach (heap s_init) curr [v_last] /\
+                     exists st_pop, Store.pop (store s) = Some st_pop).
+               --- intro np.
+                   eapply sep_bind_rule with
+                     (Q := fun (_ : unit) s =>
+                       exists st_pop,
+                         Store.pop (store s) = Some st_pop /\
+                         llist l0 ((v :: la') ++ lb)
+                           {| store := st_pop; heap := heap s |}).
+                   +++ intro tt.
+                       eapply sep_weaken. apply sep_ret_triple.
+                       intros s [st_pop [Hpop Hll]].
+                       exact (ex_intro _ st_pop (conj Hpop Hll)).
+                   +++ eapply sep_weaken. apply sep_write_ptr_triple.
+                       intros s (HNN_c & Hheap & Hshift_np &
+                                 la_pref & v_last & Hpart & Hpath_curr &
+                                 Hreach_one & [st_pop Hpop]).
+                       assert (Hpref_eq : la_pref = removelast (v :: la')).
+                       { pose proof (f_equal (@removelast memval) Hpart) as Hrm.
+                         rewrite removelast_app in Hrm. 2: discriminate.
+                         cbn in Hrm. rewrite app_nil_r in Hrm.
+                         exact (eq_sym Hrm). }
+                       destruct Hstar_init as (sa' & sb' & _ & _ & Hab' & Hlla' & Hllb').
+                       assert (Hstar_s :
+                         (llist l0 (v :: la') ** llist l1 lb)
+                           {| store := store s; heap := heap s_init |}).
+                       { exists {| store := store s; heap := heap sa' |},
+                                {| store := store s; heap := heap sb' |}.
+                         cbn. repeat split. exact Hab'.
+                         exact (llist_indep_regs l0 (v :: la') sa'
+                                  {| store := store s; heap := heap sa' |}
+                                  eq_refl Hlla').
+                         exact (llist_indep_regs l1 lb sb'
+                                  {| store := store s; heap := heap sb' |}
+                                  eq_refl Hllb'). }
+                       destruct (llist_extend_with_path l0 l1 (v :: la') lb
+                                   {| store := store s; heap := heap s_init |}
+                                   Hne Hstar_s)
+                         as (nd & np_ext & h_ext & Hpath_ext & Hshift_ext &
+                             Hmut_ext & Hll_ext).
+                       cbn in Hpath_ext, Hshift_ext, Hmut_ext, Hll_ext.
+                       assert (Hcurr_nd : curr = nd).
+                       { apply (llist_path_det (heap s_init) l0 la_pref).
+                         exact Hpath_curr. rewrite Hpref_eq. exact Hpath_ext. }
+                       subst nd.
+                       assert (Hnp_eq : np = np_ext).
+                       { injection (eq_trans (eq_sym Hshift_np) Hshift_ext) as Heq.
+                         exact Heq. }
+                       subst np_ext.
+                       exact (ex_intro _ h_ext
+                         (conj (eq_ind_r
+                                  (fun h => Heap.mutate h np (encode l1) = Some h_ext)
+                                  Hmut_ext Hheap)
+                         (ex_intro _ st_pop (conj Hpop
+                         (llist_indep_regs l0 ((v :: la') ++ lb)
+                            {| store := store s; heap := h_ext |}
+                            {| store := st_pop; heap := h_ext |}
+                            eq_refl Hll_ext))))).
+               --- eapply sep_weaken. apply sep_shift_fw_ptr_triple.
+                   intros s (HNN_c & Hheap & la_pref & v_last & Hpart & Hbn_s &
+                             Hpath_curr & Hreach_one & [st_pop Hpop]).
+                   pose proof (llist_reach_unfold (heap s_init) curr v_last [] Hreach_one)
+                     as (HNN_c2 & HWV_c & _ & _ & _ & np_c & _ &
+                         _ & Hshift_c & HWVnp_c & _ & _ & _ & _).
+                   split. rewrite Hheap. exact HWV_c.
+                   exists np_c. split. exact Hshift_c.
+                   split. rewrite Hheap. exact HWVnp_c.
+                   exact (conj HNN_c (conj Hheap (conj Hshift_c (ex_intro _ la_pref
+                     (ex_intro _ v_last (conj Hpart (conj Hpath_curr
+                       (conj Hreach_one (ex_intro _ st_pop Hpop))))))))).
+            ** eapply sep_weaken. apply sep_read_var_triple.
+               intros s (Hheap & curr_r & la_pref & la_suff & Hpart & Hne_suff &
+                         Hbn_s & Hpath_curr & Hreach_curr & [st_pop Hpop] & _ & Hlast).
+               destruct (Hlast eq_refl) as [v_last Hvl]. subst la_suff.
+               pose proof (llist_reach_unfold (heap s_init) curr_r v_last [] Hreach_curr)
+                 as (HNN_c & _ & _ & _ & _ & _ & _ & _ & _ & _ & _ & _ & _ & _).
+               exists curr_r. split. exact Hbn_s.
+               exact (conj HNN_c (conj Hheap (ex_intro _ la_pref (ex_intro _ v_last
+                 (conj Hpart (conj Hbn_s (conj Hpath_curr (conj Hreach_curr
+                   (ex_intro _ st_pop Hpop))))))))).
+          ++ apply sep_while_rule with (I := Iw).
+            ** eapply sep_bind_rule with
+                 (Q := fun (nd : Pointer.t) s =>
+                   heap s = heap s_init /\
+                   exists la_pref la_suff,
+                     (v :: la') = la_pref ++ la_suff /\
+                     la_suff <> [] /\
+                     Store.BindsTo n_node (encode nd) (store s) /\
+                     llist_path (heap s_init) l0 la_pref nd /\
+                     llist_reach (heap s_init) nd la_suff /\
+                     exists st_pop, Store.pop (store s) = Some st_pop).
+               --- intro nd.
+                   eapply sep_bind_rule with
+                     (Q := fun (np : Pointer.t) s =>
+                       heap s = heap s_init /\
+                       exists la_pref la_suff,
+                         (v :: la') = la_pref ++ la_suff /\
+                         la_suff <> [] /\
+                         Store.BindsTo n_node (encode nd) (store s) /\
+                         llist_path (heap s_init) l0 la_pref nd /\
+                         llist_reach (heap s_init) nd la_suff /\
+                         Pointer.shift_fw nd 1%N = Some np /\
+                         exists st_pop, Store.pop (store s) = Some st_pop).
+                   +++ intro np.
+                       eapply sep_bind_rule with
+                         (Q := fun (nxt : Pointer.t) s =>
+                           heap s = heap s_init /\
+                           exists la_pref la_suff,
+                             (v :: la') = la_pref ++ la_suff /\
+                             la_suff <> [] /\
+                             Store.BindsTo n_node (encode nd) (store s) /\
+                             llist_path (heap s_init) l0 la_pref nd /\
+                             llist_reach (heap s_init) nd la_suff /\
+                             Pointer.shift_fw nd 1%N = Some np /\
+                             Heap.lookup (heap s_init) np =
+                               Some (StorablePtr.ptr_encode nxt) /\
+                             exists st_pop, Store.pop (store s) = Some st_pop).
+                       *** intro nxt.
+                           eapply sep_bind_rule with
+                             (Q := fun (c : bool) s => Iw (negb c) s).
+                           ---- intro c. apply sep_ret_triple.
+                           ---- eapply sep_weaken. apply sep_eq_ptr_triple_cmp.
+                                intros s (Hheap & la_pref & la_suff & Hpart & Hne_suff &
+                                          Hbn_s & Hpath_nd & Hreach_nd & Hshift_np &
+                                          Hlk_np & [st_pop Hpop]).
+                                destruct la_suff as [ | vh la_suff_tail].
+                                { exact (False_rect _ (Hne_suff eq_refl)). }
+                                pose proof (llist_reach_unfold (heap s_init) nd vh la_suff_tail
+                                              Hreach_nd)
+                                  as (HNN_nd & HWV_nd & HCmp_nd & _ & _ & np_ref & nxt_ref &
+                                      _ & Hshift_ref & HWVnp_ref & _ & _ & Hlk_ref & Htail_ref).
+                                assert (Hnp_eq : np = np_ref).
+                                { injection (eq_trans (eq_sym Hshift_np) Hshift_ref) as Heq.
+                                  exact Heq. }
+                                subst np_ref.
+                                assert (Hnxt_eq : nxt = nxt_ref).
+                                { assert (H : StorablePtr.ptr_encode nxt =
+                                             StorablePtr.ptr_encode nxt_ref) by congruence.
+                                  cbn in H. injection H as H'. exact H'. }
+                                subst nxt_ref.
+                                destruct la_suff_tail as [ | vx la_rest].
+                                ++++ cbn in Htail_ref. subst nxt.
+                                     split. right; right; reflexivity.
+                                     split. right; right; reflexivity.
+                                     split. exact Pointer.AllowsNull.
+                                     split. exact Pointer.AllowsNull.
+                                     intros c Hcmp. cbn in Hcmp. inversion Hcmp; subst.
+                                     unfold Iw. cbn.
+                                     split. exact Hheap.
+                                     exists nd, la_pref, [vh].
+                                     split. cbn in Hpart |- *. exact Hpart.
+                                     split. discriminate.
+                                     split. exact Hbn_s.
+                                     split. exact Hpath_nd.
+                                     split. exact Hreach_nd.
+                                     split. exact (ex_intro _ st_pop Hpop).
+                                     constructor; [intro H; discriminate |
+                                       intros _; exact (ex_intro _ vh eq_refl)].
+                                ++++ pose proof (llist_reach_unfold (heap s_init) nxt vx la_rest
+                                                   Htail_ref)
+                                       as (HNN_nxt & HWV_nxt & HCmp_nxt & _ & _).
+                                     split. rewrite Hheap. exact HWV_nxt.
+                                     split. right; right; reflexivity.
+                                     split. exact HCmp_nxt.
+                                     split. exact Pointer.AllowsNull.
+                                     intros c Hcmp.
+                                     assert (Hallow_nxt :
+                                       Pointer.allows nxt Operation.Cmp = true).
+                                     { destruct (Pointer.allows_spec nxt Operation.Cmp);
+                                       [reflexivity | contradiction]. }
+                                     assert (Hallow_null :
+                                       Pointer.allows Pointer.NULL Operation.Cmp = true).
+                                     { destruct (Pointer.allows_spec Pointer.NULL Operation.Cmp);
+                                       [reflexivity |
+                                        exact (False_rect _ (n Pointer.AllowsNull))]. }
+                                     unfold Pointer.cmp in Hcmp.
+                                     rewrite Hallow_nxt, Hallow_null in Hcmp. cbn in Hcmp.
+                                     assert (Hceqb : Pointer.eqb nxt Pointer.NULL = false).
+                                     { apply Pointer.eqb_neq. exact HNN_nxt. }
+                                     rewrite Hceqb in Hcmp. cbn in Hcmp.
+                                     inversion Hcmp; subst.
+                                     unfold Iw. cbn.
+                                     split. exact Hheap.
+                                     exists nd, la_pref, (vh :: vx :: la_rest).
+                                     split. exact Hpart.
+                                     split. discriminate.
+                                     split. exact Hbn_s.
+                                     split. exact Hpath_nd.
+                                     split. exact Hreach_nd.
+                                     split. exact (ex_intro _ st_pop Hpop).
+                                     constructor; [intros _;
+                                       exact (ex_intro _ vh (ex_intro _ vx
+                                         (ex_intro _ la_rest eq_refl))) |
+                                       intro H; discriminate].
+                       *** eapply sep_weaken. apply sep_read_ptr_triple.
+                           intros s (Hheap & la_pref & la_suff & Hpart & Hne_suff &
+                                     Hbn_s & Hpath_nd & Hreach_nd & Hshift_np & [st_pop Hpop]).
+                           destruct la_suff as [ | vh la_suff_tail].
+                           { exact (False_rect _ (Hne_suff eq_refl)). }
+                           pose proof (llist_reach_unfold (heap s_init) nd vh la_suff_tail
+                                         Hreach_nd)
+                             as (_ & _ & _ & _ & _ & np_ref & nxt_ref &
+                                 _ & Hshift_ref & _ & _ & _ & Hlk_ref & _).
+                           assert (Hnp_eq : np = np_ref).
+                           { injection (eq_trans (eq_sym Hshift_np) Hshift_ref) as Heq.
+                             exact Heq. }
+                           subst np_ref.
+                           exists nxt_ref. split. rewrite Hheap. exact Hlk_ref.
+                           split. exact Hheap.
+                           exists la_pref, (vh :: la_suff_tail).
+                           split. exact Hpart.
+                           split. discriminate.
+                           split. exact Hbn_s.
+                           split. exact Hpath_nd.
+                           split. exact Hreach_nd.
+                           split. exact Hshift_np.
+                           split. exact Hlk_ref.
+                           exact (ex_intro _ st_pop Hpop).
+                   +++ eapply sep_weaken. apply sep_shift_fw_ptr_triple.
+                       intros s (Hheap & la_pref & la_suff & Hpart & Hne_suff &
+                                 Hbn_s & Hpath_nd & Hreach_nd & [st_pop Hpop]).
+                       destruct la_suff as [ | vh la_suff_tail].
+                       { exact (False_rect _ (Hne_suff eq_refl)). }
+                       pose proof (llist_reach_unfold (heap s_init) nd vh la_suff_tail
+                                     Hreach_nd)
+                         as (_ & HWV_nd & _ & _ & _ & np_ref & _ &
+                             _ & Hshift_ref & HWVnp_ref & _ & _ & _ & _).
+                       split. rewrite Hheap. exact HWV_nd.
+                       exists np_ref. split. exact Hshift_ref.
+                       split. rewrite Hheap. exact HWVnp_ref.
+                       exact (conj Hheap (ex_intro _ la_pref
+                         (ex_intro _ (vh :: la_suff_tail)
+                         (conj Hpart (conj Hne_suff (conj Hbn_s (conj Hpath_nd
+                           (conj Hreach_nd (conj Hshift_ref
+                             (ex_intro _ st_pop Hpop)))))))))).
+               --- eapply sep_weaken. apply sep_read_var_triple.
+                   intros s [b HIw].
+                   destruct HIw as (Hheap & curr & la_pref & la_suff &
+                                    Hpart & Hne_suff & Hbn_s & Hpath_curr & Hreach_curr &
+                                    Hpop_ex & _ & _).
+                   exists curr. split. exact Hbn_s.
+                   exact (conj Hheap (ex_intro _ la_pref (ex_intro _ la_suff
+                     (conj Hpart (conj Hne_suff (conj Hbn_s (conj Hpath_curr
+                       (conj Hreach_curr Hpop_ex)))))))).
+            ** eapply sep_bind_rule with
+                 (Q := fun (nd : Pointer.t) s =>
+                   heap s = heap s_init /\
+                   exists la_pref vh vx la_rest,
+                     (v :: la') = la_pref ++ (vh :: vx :: la_rest) /\
+                     Store.BindsTo n_node (encode nd) (store s) /\
+                     llist_path (heap s_init) l0 la_pref nd /\
+                     llist_reach (heap s_init) nd (vh :: vx :: la_rest) /\
+                     exists st_pop, Store.pop (store s) = Some st_pop).
+               --- intro nd.
+                   eapply sep_bind_rule with
+                     (Q := fun (np : Pointer.t) s =>
+                       heap s = heap s_init /\
+                       exists la_pref vh vx la_rest,
+                         (v :: la') = la_pref ++ (vh :: vx :: la_rest) /\
+                         Store.BindsTo n_node (encode nd) (store s) /\
+                         llist_path (heap s_init) l0 la_pref nd /\
+                         llist_reach (heap s_init) nd (vh :: vx :: la_rest) /\
+                         Pointer.shift_fw nd 1%N = Some np /\
+                         exists st_pop, Store.pop (store s) = Some st_pop).
+                   +++ intro np.
+                       eapply sep_bind_rule with
+                         (Q := fun (nxt : Pointer.t) s =>
+                           heap s = heap s_init /\
+                           exists la_pref vh vx la_rest,
+                             (v :: la') = la_pref ++ (vh :: vx :: la_rest) /\
+                             Store.BindsTo n_node (encode nd) (store s) /\
+                             llist_path (heap s_init) l0 la_pref nd /\
+                             nd <> Pointer.NULL /\
+                             Pointer.shift_fw nd 1%N = Some np /\
+                             Heap.lookup (heap s_init) np =
+                               Some (StorablePtr.ptr_encode nxt) /\
+                             llist_reach (heap s_init) nxt (vx :: la_rest) /\
+                             exists st_pop, Store.pop (store s) = Some st_pop).
+                       *** intro nxt.
+                           eapply sep_weaken. apply sep_write_var_triple.
+                           intros s (Hheap & la_pref & vh & vx & la_rest & Hpart &
+                                     Hbn_s & Hpath_nd & HNN_nd & Hshift_np & Hlk_np &
+                                     Hreach_nxt & [st_pop Hpop]).
+                           destruct (pop_mutate_unchecked_fwd (store s) n_node (encode nxt)
+                                       (ex_intro _ st_pop Hpop)) as [st_pop' Hpop'].
+                           exists (encode nd). split. exact Hbn_s.
+                           destruct la_rest as [ | v2 la_rest'].
+                           ---- exists false. unfold Iw. cbn [heap store].
+                                split. exact Hheap.
+                                exists nxt, (la_pref ++ [vh]), [vx].
+                                split.
+                                { rewrite <- app_assoc. cbn. exact Hpart. }
+                                split. discriminate.
+                                split.
+                                { apply Store.Facts.mutate_unchecked_spec_ll; reflexivity. }
+                                split.
+                                { exact (llist_path_app_step _ l0 la_pref nd vh np nxt
+                                           Hpath_nd HNN_nd Hshift_np Hlk_np). }
+                                split. exact Hreach_nxt.
+                                split. exact (ex_intro _ st_pop' Hpop').
+                                constructor; [intro H; discriminate |
+                                  intros _; exact (ex_intro _ vx eq_refl)].
+                           ---- exists true. unfold Iw. cbn [heap store].
+                                split. exact Hheap.
+                                exists nxt, (la_pref ++ [vh]), (vx :: v2 :: la_rest').
+                                split.
+                                { rewrite <- app_assoc. cbn. exact Hpart. }
+                                split. discriminate.
+                                split.
+                                { apply Store.Facts.mutate_unchecked_spec_ll; reflexivity. }
+                                split.
+                                { exact (llist_path_app_step _ l0 la_pref nd vh np nxt
+                                           Hpath_nd HNN_nd Hshift_np Hlk_np). }
+                                split. exact Hreach_nxt.
+                                split. exact (ex_intro _ st_pop' Hpop').
+                                constructor; [intros _;
+                                  exact (ex_intro _ vx (ex_intro _ v2
+                                    (ex_intro _ la_rest' eq_refl))) |
+                                  intro H; discriminate].
+                       *** eapply sep_weaken. apply sep_read_ptr_triple.
+                           intros s (Hheap & la_pref & vh & vx & la_rest & Hpart &
+                                     Hbn_s & Hpath_nd & Hreach_nd & Hshift_np & [st_pop Hpop]).
+                           pose proof (llist_reach_unfold (heap s_init) nd vh (vx :: la_rest)
+                                         Hreach_nd)
+                             as (HNN_nd & _ & _ & _ & _ & np_ref & nxt_ref &
+                                 _ & Hshift_ref & _ & _ & _ & Hlk_ref & Htail_ref).
+                           assert (Hnp_eq : np = np_ref).
+                           { injection (eq_trans (eq_sym Hshift_np) Hshift_ref) as Heq.
+                             exact Heq. }
+                           subst np_ref.
+                           exists nxt_ref. split. rewrite Hheap. exact Hlk_ref.
+                           exact (conj Hheap (ex_intro _ la_pref (ex_intro _ vh
+                             (ex_intro _ vx (ex_intro _ la_rest
+                             (conj Hpart (conj Hbn_s (conj Hpath_nd (conj HNN_nd (conj Hshift_np
+                               (conj Hlk_ref (conj Htail_ref
+                                 (ex_intro _ st_pop Hpop))))))))))))).
+                   +++ eapply sep_weaken. apply sep_shift_fw_ptr_triple.
+                       intros s (Hheap & la_pref & vh & vx & la_rest & Hpart &
+                                 Hbn_s & Hpath_nd & Hreach_nd & [st_pop Hpop]).
+                       pose proof (llist_reach_unfold (heap s_init) nd vh (vx :: la_rest)
+                                     Hreach_nd)
+                         as (_ & HWV_nd & _ & _ & _ & np_ref & _ &
+                             _ & Hshift_ref & HWVnp_ref & _ & _ & _ & _).
+                       split. rewrite Hheap. exact HWV_nd.
+                       exists np_ref. split. exact Hshift_ref.
+                       split. rewrite Hheap. exact HWVnp_ref.
+                       exact (conj Hheap (ex_intro _ la_pref (ex_intro _ vh
+                         (ex_intro _ vx (ex_intro _ la_rest
+                         (conj Hpart (conj Hbn_s (conj Hpath_nd (conj Hreach_nd
+                           (conj Hshift_ref (ex_intro _ st_pop Hpop))))))))))).
+               --- eapply sep_weaken. apply sep_read_var_triple.
+                   intros s (Hheap & curr & la_pref & la_suff &
+                             Hpart & Hne_suff & Hbn_s & Hpath_curr & Hreach_curr &
+                             [st_pop Hpop] & Htrue & _).
+                   destruct (Htrue eq_refl) as [vh [vx [la_rest Hla_eq]]]. subst la_suff.
+                   exists curr. split. exact Hbn_s.
+                   exact (conj Hheap (ex_intro _ la_pref (ex_intro _ vh
+                     (ex_intro _ vx (ex_intro _ la_rest
+                     (conj Hpart (conj Hbn_s (conj Hpath_curr
+                       (conj Hreach_curr (ex_intro _ st_pop Hpop)))))))))).
+        -- intros s ->.
+           destruct la' as [ | vx la''].
+           ++ exists false. unfold Iw.
+              split. reflexivity.
+              exists l0, [], [v].
+              split. cbn. reflexivity.
+              split. discriminate.
+              split. exact Hbn_init.
+              split. exact (Path_nil (heap s_init) l0).
+              split. exact Hreach_init.
+              split. exact (ex_intro _ st_pop0 Hpop_st1).
+              split. intro H; discriminate.
+              intro . exact (ex_intro _ v eq_refl).
+           ++ exists true. unfold Iw.
+              split. reflexivity.
+              exists l0, [], (v :: vx :: la'').
+              split. cbn. reflexivity.
+              split. discriminate.
+              split. exact Hbn_init.
+              split. exact (Path_nil (heap s_init) l0).
+              split. exact Hreach_init.
+              split. exact (ex_intro _ st_pop0 Hpop_st1).
+              split. intro .
+                exact (ex_intro _ v (ex_intro _ vx (ex_intro _ la'' eq_refl))).
+              intro H; discriminate.
+    + eapply sep_weaken. apply sep_eq_ptr_triple_cmp.
+      intros s [HP Hstar].
+      destruct Hstar as (sa & sb & Hst_sa & Hst_sb & Hab & Hlla & Hllb).
+      pose proof (substate_of_partition_l Hab) as Hsub_sa.
+      pose proof (llist_reach_of_llist l0 (v :: la') sa Hlla) as Hreach0.
+      pose proof (llist_reach_monotone _ _ l0 (v :: la') Hsub_sa Hreach0) as Hreach_s.
+      pose proof (llist_reach_unfold _ l0 v la' Hreach_s)
+        as (HNN_l0 & HWV_l0 & HCmp_l0 & _ & _).
+      split. exact HWV_l0.
+      split. right; right; reflexivity.
+      split. exact HCmp_l0.
+      split. exact Pointer.AllowsNull.
+      intros b Hcmp.
+      assert (Hallow_l0 : Pointer.allows l0 Operation.Cmp = true).
+      { destruct (Pointer.allows_spec l0 Operation.Cmp); [reflexivity | contradiction]. }
+      assert (Hallow_null : Pointer.allows Pointer.NULL Operation.Cmp = true).
+      { destruct (Pointer.allows_spec Pointer.NULL Operation.Cmp);
+        [reflexivity | exact (False_rect _ (n Pointer.AllowsNull))]. }
+      unfold Pointer.cmp in Hcmp.
+      rewrite Hallow_l0, Hallow_null in Hcmp. cbn in Hcmp.
+      assert (Hceqb : Pointer.eqb l0 Pointer.NULL = false).
+      { apply Pointer.eqb_neq. exact HNN_l0. }
+      rewrite Hceqb in Hcmp. cbn in Hcmp.
+      inversion Hcmp; subst.
+      exact (conj HP (ex_intro _ sa (ex_intro _ sb
+        (conj Hst_sa (conj Hst_sb (conj Hab (conj Hlla Hllb))))))).
+  Qed.
 
 End List.
 
