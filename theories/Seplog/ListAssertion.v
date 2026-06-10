@@ -422,6 +422,26 @@ Proof.
     eapply IHla; eauto.
 Qed.
 
+Lemma llist_reach_unfold {Hp: Heap} : forall (h: Hp) p v la',
+    llist_reach h p (v :: la') ->
+    p <> Pointer.NULL /\
+    WValid h p /\
+    Pointer.Allows p Operation.Cmp /\
+    Pointer.Allows p Operation.Read /\
+    exists (a : Addr.t) (next_ptr p0 : Pointer.t),
+      Pointer.References p a /\
+      Pointer.shift_fw p 1 = Some next_ptr /\
+      WValid h next_ptr /\
+      Pointer.Allows next_ptr Operation.Read /\
+      Pointer.Allows next_ptr Operation.Write /\
+      lookup h next_ptr = Some (StorablePtr.ptr_encode p0) /\
+      llist_reach h p0 la'.
+Proof.
+  intros h p v la' Hreach.
+  unfold llist_reach in Hreach.
+  exact Hreach.
+Qed.
+
 Lemma wvalid_mono {Hp: Heap}: forall (h h': Hp) p,
   h $<= h' -> Heap.Facts.WValid h p -> Heap.Facts.WValid h' p.
 Proof.
@@ -865,3 +885,206 @@ Proof.
       exact H_ext_sub.
 Qed.
 
+Inductive llist_path {Hp: Heap} (h: Hp): Pointer.t -> list memval -> Pointer.t -> Prop :=
+| Path_nil: forall p, llist_path h p [] p
+| Path_cons: forall p v la nd next p0,
+    p <> Pointer.NULL ->
+    Pointer.shift_fw p 1%N = Some next ->
+    Heap.lookup h next = Some (StorablePtr.ptr_encode p0) ->
+    llist_path h p0 la nd ->
+    llist_path h p (v :: la) nd.
+
+Lemma llist_path_mono {Hp: Heap}: forall (h h': Hp) p la nd,
+  h $<= h' ->
+  llist_path h p la nd ->
+  llist_path h' p la nd.
+Proof.
+  intros h h' p la nd Hsub Hpath.
+  induction Hpath as [p | p v la nd next p0 HNN Hshift Hlk Hpath IH].
+  - exact (Path_nil h' p).
+  - exact (Path_cons h' p v la nd next p0 HNN Hshift
+             (lookup_mono h h' next (StorablePtr.ptr_encode p0) Hsub Hlk) IH).
+Qed.
+
+Lemma llist_path_det {Hp: Heap}: forall (h: Hp) p la nd1 nd2,
+  llist_path h p la nd1 ->
+  llist_path h p la nd2 ->
+  nd1 = nd2.
+Proof.
+  intros h p la. revert p.
+  induction la as [ | v la' IH]; intros p nd1 nd2 H1 H2.
+  - inversion H1; inversion H2; subst; reflexivity.
+  - inversion H1 as [ | ? ? ? ? next1 p0_1 Hnn1 Hsh1 Hlk1 Hpath1]; subst.
+    inversion H2 as [ | ? ? ? ? next2 p0_2 Hnn2 Hsh2 Hlk2 Hpath2]; subst.
+    assert (Hnext : next1 = next2) by congruence.
+    subst next2.
+    assert (Henc : StorablePtr.ptr_encode p0_1 = StorablePtr.ptr_encode p0_2)
+      by congruence.
+    cbn in Henc. injection Henc as <-.
+    exact (IH p0_1 nd1 nd2 Hpath1 Hpath2).
+Qed.
+
+Lemma llist_path_to_pivot {Hp: Heap}: forall (h: Hp) p la nd v,
+  llist_path h p la nd ->
+  llist_reach h nd [v] ->
+  llist_reach_pivot h p la nd.
+Proof.
+  intros h p la. revert p.
+  induction la as [ | w la' IH]; intros p nd v Hpath Hreach.
+  - inversion Hpath; subst. exact (Pivot_nil h nd v Hreach).
+  - inversion Hpath as [ | ? ? ? ? next p0 Hnn Hsh Hlk Hpath']; subst.
+    exact (Pivot_cons h p w la' nd next p0 Hnn Hsh Hlk (IH p0 nd v Hpath' Hreach)).
+Qed.
+
+Lemma llist_reach_to_path {Hp: Heap}: forall (h: Hp) p la v,
+  llist_reach h p (la ++ [v]) ->
+  exists nd,
+    llist_path h p la nd /\
+    llist_reach h nd [v].
+Proof.
+  intros h p la. revert p.
+  induction la as [ | w la' IH]; intros p v Hreach.
+  - exists p. exact (conj (Path_nil h p) Hreach).
+  - cbn in Hreach.
+    destruct Hreach as (HNN & HWV & HCmp & HRd &
+                        a & next & p0 &
+                        HRef & Hshift & HWVnp & HRnp & HWnp & HLk & Htail).
+    destruct (IH p0 v Htail) as (nd & Hpath & Hreach_nd).
+    exact (ex_intro _ nd (conj
+      (Path_cons h p w la' nd next p0 HNN Hshift HLk Hpath)
+      Hreach_nd)).
+Qed.
+
+Lemma llist_path_app_step {Hp: Heap}: forall (h: Hp) p la curr v np next_nd,
+  llist_path h p la curr ->
+  curr <> Pointer.NULL ->
+  Pointer.shift_fw curr 1%N = Some np ->
+  Heap.lookup h np = Some (StorablePtr.ptr_encode next_nd) ->
+  llist_path h p (la ++ [v]) next_nd.
+Proof.
+  intros h p la. revert p.
+  induction la as [ | w la' IH]; intros p curr v np next_nd Hpath HNN Hshift Hlk.
+  - inversion Hpath; subst.
+    exact (Path_cons h curr v [] next_nd np next_nd HNN Hshift Hlk (Path_nil h next_nd)).
+  - inversion Hpath as [ | ? ? ? ? next2 p0 Hnn2 Hsh2 Hlk2 Hpath2]; subst.
+    cbn.
+    exact (Path_cons h p w (la' ++ [v]) next_nd next2 p0 Hnn2 Hsh2 Hlk2
+             (IH p0 curr v np next_nd Hpath2 HNN Hshift Hlk)).
+Qed.
+
+Lemma llist_extend_with_path {St Hp}:
+  forall (p q: Pointer.t) (la lb: list memval) (s: State St Hp),
+  la <> [] ->
+  (llist p la ** llist q lb) s ->
+  exists (nd np: Pointer.t) (h': Hp),
+    llist_path (heap s) p (removelast la) nd /\
+    Pointer.shift_fw nd 1%N = Some np /\
+    Heap.mutate (heap s) np (encode q) = Some h' /\
+    llist p (la ++ lb) {| store := store s; heap := h' |}.
+Proof.
+  intro p. intro q. intro la.
+  revert p.
+  induction la as [ | v la_tl IH_tl].
+  - intros p lb s Hne _. exact (False_rect _ (Hne eq_refl)).
+  - intros p lb s _ H_star.
+    destruct la_tl as [ | v_n la_r].
+    + assert (H_lookup_shift :
+        exists np, Pointer.shift_fw p 1%N = Some np /\
+                   Heap.lookup (heap s) np = Some (encode Pointer.NULL)).
+      { destruct H_star as (sa & sb & _ & _ & H_ab & H_a & _).
+        pose proof (llist_tl p v [] sa H_a) as Htl.
+        destruct Htl as (np & p0 & H_shift & H_lk & Hreach).
+        cbn in Hreach. subst p0.
+        exact (ex_intro _ np (conj H_shift
+          (lookup_mono _ _ _ _ (substate_of_partition_l H_ab) H_lk))). }
+      destruct H_lookup_shift as (np & H_shift & H_lookup).
+      destruct (llist_star_mutate p q Pointer.NULL v [] lb np s H_star H_shift H_lookup)
+        as (h' & H_mut & H_res).
+      destruct H_res as (sa' & sb' & _ & _ & H_ab' & H_a' & H_b').
+      cbn in H_b'. destruct H_b' as (_ & Hempty).
+      rewrite Hempty, op_id_r in H_ab'. injection H_ab' as Heq.
+      exists p, np, h'.
+      exact (conj (Path_nil (heap s) p)
+             (conj H_shift (conj H_mut
+               (llist_indep_regs p (v :: lb) sa'
+                 {| store := store s; heap := h' |} Heq H_a')))).
+    + assert (Hne_tl : v_n :: la_r <> []) by discriminate.
+      destruct H_star as (sa & sb & _ & _ & H_ab & Hlla & Hllb).
+      cbn in Hlla.
+      destruct Hlla as (sLift & sRest & _ & _ & H_lr & HliftA & HexistB).
+      cbn in HliftA.
+      destruct HliftA as [[HNN [HRead [np_p [H_shift_p [HReadNP HWriteNP]]]]] H_eLift].
+      rewrite H_eLift, op_id_l in H_lr. injection H_lr as H_restH.
+      destruct HexistB as (addr & p' & sCR & sTL & _ & _ & H_cr_tl & HliftC & HtailD).
+      rewrite H_restH in H_cr_tl.
+      destruct HliftC as (sE & sF & _ & _ & H_ef & HrefE & HtwoF).
+      cbn in HrefE. destruct HrefE as [H_ref_nd H_eRef].
+      rewrite H_eRef, op_id_l in H_ef. injection H_ef as H_fH.
+      assert (H_hCR : heap sCR = of_list addr [v; VPtr p'])
+        by (unfold Two in HtwoF; congruence).
+      assert (H_h_sub : exists h_sub,
+        heap sTL $+ heap sb = Some h_sub /\
+        heap sCR $+ h_sub = Some (heap s)).
+      { specialize (op_assc (heap sCR) (heap sTL) (heap sb)) as Hassoc.
+        unfold Basics.flip in Hassoc.
+        rewrite H_cr_tl in Hassoc. cbn in Hassoc.
+        rewrite H_ab in Hassoc.
+        case_eq (heap sTL $+ heap sb).
+        - intros h_sub E_sub. rewrite E_sub in Hassoc. cbn in Hassoc.
+          exact (ex_intro _ h_sub (conj eq_refl (eq_sym Hassoc))).
+        - intro E_sub. rewrite E_sub in Hassoc. cbn in Hassoc. discriminate. }
+      destruct H_h_sub as (h_sub & H_sub_eq & H_cr_sub).
+      assert (H_sub_le : h_sub $<= heap s).
+      { exact (substate_of_partition_r H_cr_sub). }
+      assert (H_star_sub : (llist p' (v_n :: la_r) ** llist q lb)
+                             {| store := store s; heap := h_sub |}).
+      { exists {| store := store s; heap := heap sTL |},
+               {| store := store s; heap := heap sb |}.
+        cbn. split. reflexivity. split. reflexivity. split. exact H_sub_eq.
+        split.
+        - exact (llist_indep_regs p' (v_n :: la_r) sTL
+                   {| store := store s; heap := heap sTL |} eq_refl HtailD).
+        - exact (llist_indep_regs q lb sb
+                   {| store := store s; heap := heap sb |} eq_refl Hllb). }
+      destruct (IH_tl p' lb {| store := store s; heap := h_sub |}
+                  Hne_tl H_star_sub)
+        as (nd & np & h'_sub & Hpath_sub & H_shift_nd & H_mut_sub & H_ext_sub).
+      destruct (mutate_frame (heap sCR) h_sub (heap s) h'_sub np (encode q)
+                  H_cr_sub H_mut_sub)
+        as (h' & H_cr_h'_sub & H_mut_full).
+      assert (H_lk_s : Heap.lookup (heap s) np_p = Some (StorablePtr.ptr_encode p')).
+      { apply -> lookup_some.
+        exists (Addr.shift_fw addr 1%N).
+        refine (conj (shift_fw_references p addr 1%N np_p H_ref_nd H_shift_p)
+                     (conj HReadNP _)).
+        assert (H_cell : (Addr.shift_fw addr 1%N) |-> (VPtr p') $<= heap sCR).
+        { rewrite H_hCR.
+          exact (proj1 (@of_list_spec Hp addr [v; VPtr p'] 1 (VPtr p')) eq_refl). }
+        exact (substate_tran _ _ _ H_cell (substate_of_partition_l H_cr_sub)). }
+      exists nd, np, h'.
+      refine (conj _ (conj H_shift_nd (conj H_mut_full _))).
+      * cbn [removelast].
+        exact (Path_cons (heap s) p v (removelast (v_n :: la_r)) nd np_p p'
+                 HNN H_shift_p H_lk_s
+                 (llist_path_mono h_sub (heap s) p' (removelast (v_n :: la_r)) nd
+                   H_sub_le Hpath_sub)).
+      * cbn.
+        exists {| store := store s; heap := $0 |},
+               {| store := store s; heap := h' |}.
+        cbn. split. reflexivity. split. reflexivity. split. apply op_id_l.
+        split.
+        { exact (conj (conj HNN (conj HRead
+            (ex_intro _ np_p (conj H_shift_p (conj HReadNP HWriteNP))))) eq_refl). }
+        exists addr, p'.
+        exists {| store := store s; heap := heap sCR |},
+               {| store := store s; heap := h'_sub |}.
+        cbn. split. reflexivity. split. reflexivity. split. exact H_cr_h'_sub.
+        split.
+        { exists {| store := store s; heap := $0 |},
+                 {| store := store s; heap := heap sCR |}.
+          cbn. split. reflexivity. split. reflexivity. split. apply op_id_l.
+          split.
+          - exact (conj H_ref_nd eq_refl).
+          - unfold Two. exact H_hCR. }
+        exact H_ext_sub.
+Qed.
