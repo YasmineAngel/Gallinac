@@ -1261,6 +1261,56 @@ Section ListHeap.
 
   Canonical list_heap_heap.
 
+  Lemma heap_mutate_frame
+      (hp_P hp_ll hp h_ll' : list_heap_carrier) (ptr: Pointer.t) (val: memval) :
+    hp_P $+ hp_ll = Some hp ->
+    Heap.mutate hp_ll ptr val = Some h_ll' ->
+    exists hp',
+      Heap.mutate hp ptr val = Some hp' /\
+      hp_P $+ h_ll' = Some hp'.
+  Proof.
+    intros Hpart Hmut_ll.
+    assert (Hmut_ll_ex : exists h, Heap.mutate hp_ll ptr val = Some h) by (exists h_ll'; exact Hmut_ll).
+    apply (proj2 (mutate_some hp_ll ptr val)) in Hmut_ll_ex
+      as (a & Href & Hallow & v_old & hp_ll_rest & Hpart_ll).
+    assert (Hpart_ll' : @op list_heap_separation (one a v_old) hp_ll_rest = Some hp_ll)
+      by exact Hpart_ll.
+    pose proof (mutate_mem hp_ll ptr val h_ll' a v_old hp_ll_rest Hmut_ll Href Hpart_ll) as Hpatch_ll.
+    assert (Hpatch_ll' : @op list_heap_separation (one a val) hp_ll_rest = Some h_ll')
+      by exact Hpatch_ll.
+    pose proof (@op_assc list_heap_separation (one a v_old) hp_ll_rest hp_P) as Hassoc1.
+    unfold Basics.flip in Hassoc1.
+    Opaque list_heap_separation.
+    rewrite Hpart_ll' in Hassoc1.
+    destruct (@op list_heap_separation hp_ll_rest hp_P) eqn:E_m_rest.
+    2: {
+      cbn in Hassoc1.
+      rewrite (op_comm hp_ll hp_P), Hpart in Hassoc1.
+      discriminate.
+    }
+    rename c into m_rest.
+    cbn in Hassoc1.
+    rewrite (op_comm hp_ll hp_P), Hpart in Hassoc1.
+    symmetry in Hassoc1.
+    assert (Hmut_hp_ex : exists hp', Heap.mutate hp ptr val = Some hp').
+    { apply (proj1 (mutate_some hp ptr val)).
+      exact (ex_intro _ a (conj Href (conj Hallow (ex_intro _ v_old (ex_intro _ m_rest Hassoc1))))). }
+    destruct Hmut_hp_ex as (hp' & Hmut_hp).
+    pose proof (mutate_mem hp ptr val hp' a v_old m_rest Hmut_hp Href Hassoc1) as Hpatch_hp.
+    assert (Hpatch_hp' : @op list_heap_separation (one a val) m_rest = Some hp')
+      by exact Hpatch_hp.
+    pose proof (@op_assc list_heap_separation (one a val) hp_ll_rest hp_P) as Hassoc2.
+    unfold Basics.flip in Hassoc2.
+    rewrite Hpatch_ll' in Hassoc2.
+    rewrite E_m_rest in Hassoc2.
+    assert (Hbind2 : ssrfun.Option.bind (@op list_heap_separation (one a val)) (Some m_rest) = Some hp')
+      by exact Hpatch_hp'.
+    rewrite Hbind2 in Hassoc2; cbn in Hassoc2.
+    rewrite op_comm in Hassoc2.
+    Transparent list_heap_separation.
+    exact (ex_intro _ hp' (conj Hmut_hp Hassoc2)).
+  Qed.
+
   Lemma memblocks_one_length b o v : length (memblocks_one b o v) = S b.
   Proof. induction b; cbn; lia. Qed.
 
